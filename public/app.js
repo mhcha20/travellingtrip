@@ -318,7 +318,10 @@ $('#importBtn').addEventListener('click', async () => {
   const f = $('#placeForm'), st = $('#importStatus'), btn = $('#importBtn');
   const link = f.url.value.trim(), text = $('#importText').value.trim();
   if (!/^https?:\/\//.test(link)) { f.url.focus(); st.hidden = false; st.textContent = '請先貼條連結'; return; }
-  st.hidden = false; st.textContent = '⏳ 讀緊帖文、上網核實緊資料…（大約 30–90 秒）'; btn.disabled = true;
+  st.hidden = false; btn.disabled = true; btn.textContent = '⏳ 搵緊…'; st.classList.add('busy');
+  const t0 = Date.now();
+  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); st.textContent = `⏳ 讀緊帖文、上網核實緊資料…已等 ${s} 秒（通常 30–90 秒，請留喺呢版唔好轉 App）`; };
+  tick(); const timer = setInterval(tick, 1000);
   try {
     const r = await fetch('/api/linkimport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link, text }) });
     if (r.status === 503) { st.textContent = '自動填寫未啟用（需要 Anthropic API key）'; return; }
@@ -336,8 +339,10 @@ $('#importBtn').addEventListener('click', async () => {
     showCandidates(d.candidates || [], f);
     const conf = { high: '✅ 好肯定', medium: '🟡 幾肯定', low: '⚠️ 唔太肯定' }[x.confidence] || '';
     st.textContent = `${conf}：${x.reason}${d.pageOk ? '' : '（帖文讀唔到，用咗你貼嘅文字）'} — 請核對後撳「儲存」。`;
-  } catch { st.textContent = '自動填寫失敗，請再試或者自己填。'; }
-  finally { btn.disabled = false; }
+    f.elements.name.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    ['name', 'area', 'kind', 'note'].forEach(k => { const el = f.elements[k]; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
+  } catch { st.textContent = '自動填寫失敗（可能網絡中斷或者轉咗 App），請再撳一次。'; }
+  finally { clearInterval(timer); btn.disabled = false; btn.textContent = '✨ 自動填寫'; st.classList.remove('busy'); }
 });
 
 // Google Places: food photos + rating

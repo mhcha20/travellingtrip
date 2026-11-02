@@ -93,7 +93,7 @@ In the notes, prefer the verified current facts and mention where they differ fr
   let res;
   try {
     for (let turn = 0; turn < 4; turn++) {
-      res = await client.beta.messages.create({ ...base, messages, tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6 }] });
+      res = await client.beta.messages.create({ ...base, messages, tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 8 }] });
       if (res.stop_reason !== 'pause_turn') break;
       messages.push({ role: 'assistant', content: res.content });
     }

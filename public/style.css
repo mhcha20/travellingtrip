@@ -185,3 +185,9 @@ a.btn.primary{color:#fff}
 .ghint{margin:2px 0 8px;font-size:12px;color:var(--warm)}
 .gpick.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
 #importTextBox summary{font-size:13px;color:var(--muted);cursor:pointer}
+button:disabled{opacity:.65;cursor:progress}
+#importStatus.busy{color:var(--accent);font-weight:500;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){#importStatus.busy{animation:none}}
+.flash{animation:flash 1.8s ease-out}
+@keyframes flash{0%{background:color-mix(in srgb,var(--ice) 45%,transparent)}100%{background:var(--card-solid)}}
