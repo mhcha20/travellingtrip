@@ -3,7 +3,7 @@
 const AnthropicMod = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicMod.default || AnthropicMod;
 
-const KEY = () => process.env.GOOGLE_MAPS_API_KEY || '';
+const KEY = () => process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAP_API_KEY || '';
 const BASE = 'https://places.googleapis.com/v1/';
 const enabled = () => !!KEY();
 const PHOTO_NAME = /^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/;
