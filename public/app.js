@@ -12,7 +12,11 @@ const toast = m => { let t = $('#toast'); if (!t) { t = document.createElement('
 async function api(method, path, body) {
   for (;;) {
     const r = await fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json', 'X-Trip-Password': store.get('tt_pw', '') }, body: body === undefined ? undefined : JSON.stringify(body) });
-    if (r.status === 401) { const pw = prompt('請輸入密碼'); if (pw === null) throw new Error('cancelled'); store.set('tt_pw', pw); continue; }
+    if (r.status === 401) {
+      const j = await r.json().catch(() => ({}));
+      if (j.google) { location.href = '/login.html'; throw new Error('login required'); }
+      const pw = prompt('請輸入密碼'); if (pw === null) throw new Error('cancelled'); store.set('tt_pw', pw); continue;
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   }
@@ -164,5 +168,12 @@ $('#tipsList').innerHTML = `<div class="panel"><h2>行前清單</h2>${ul(TIPS.ch
     expenses = st.expenses; journal = st.journal; rate = st.rate;
   } catch (e) { console.error(e); toast('無法載入資料'); }
   $('#rate').value = rate; renderExp(); renderJournal();
+  try {
+    const me = await api('GET', 'me');
+    if (me.email) {
+      $('#who').hidden = false; $('#whoEmail').textContent = me.email;
+      $('#logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login.html'; });
+    }
+  } catch {}
 })();
 })();

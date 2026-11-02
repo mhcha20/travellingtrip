@@ -6,6 +6,12 @@ const { Pool } = require('pg');
 
 const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.TRIP_PASSWORD || '';
+// Google login: when GOOGLE_CLIENT_ID is set, only signed-in users on ALLOWED_EMAILS can see the site.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const ALLOWED = (process.env.ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const SESSION_DAYS = 30;
+const PUBLIC_FILES = new Set(['/login.html', '/style.css']);
 const PUBLIC = path.join(__dirname, 'public');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -28,7 +34,38 @@ const readBody = req => new Promise((resolve, reject) => {
   req.on('end', () => { try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}); } catch (e) { reject(e); } });
   req.on('error', reject);
 });
+const sign = v => crypto.createHmac('sha256', SESSION_SECRET).update(v).digest('base64url');
+function makeSession(email) {
+  const v = Buffer.from(JSON.stringify({ email, exp: Date.now() + SESSION_DAYS * 864e5 })).toString('base64url');
+  return v + '.' + sign(v);
+}
+function sessionEmail(req) {
+  const m = /(?:^|;\s*)tt_session=([^;]+)/.exec(req.headers.cookie || '');
+  if (!m) return null;
+  const [v, sig] = m[1].split('.');
+  if (!v || !sig) return null;
+  const a = Buffer.from(sig), b = Buffer.from(sign(v));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const { email, exp } = JSON.parse(Buffer.from(v, 'base64url'));
+    return exp > Date.now() && ALLOWED.includes(email) ? email : null;
+  } catch { return null; }
+}
+const cookie = (val, maxAge) => `tt_session=${val}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+
+async function verifyGoogle(credential) {
+  const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential));
+  if (!r.ok) return null;
+  const t = await r.json();
+  if (t.aud !== GOOGLE_CLIENT_ID) return null;
+  if (!['accounts.google.com', 'https://accounts.google.com'].includes(t.iss)) return null;
+  if (t.email_verified !== 'true' && t.email_verified !== true) return null;
+  if (Number(t.exp) * 1000 < Date.now()) return null;
+  return String(t.email).toLowerCase();
+}
+
 const authed = req => {
+  if (GOOGLE_CLIENT_ID) return !!sessionEmail(req);
   if (!PASSWORD) return true;
   const a = Buffer.from(req.headers['x-trip-password'] || ''), b = Buffer.from(PASSWORD);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -36,9 +73,21 @@ const authed = req => {
 const TABLES = { expenses: 'expenses', journal: 'journal' };
 
 async function api(req, res, url) {
-  if (!authed(req)) return send(res, 401, { error: 'unauthorized' });
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const [kind, id] = parts;
+  if (req.method === 'GET' && kind === 'config') return send(res, 200, { googleClientId: GOOGLE_CLIENT_ID || null });
+  if (req.method === 'POST' && kind === 'login') {
+    if (!GOOGLE_CLIENT_ID) return send(res, 400, { error: 'google login not configured' });
+    const { credential } = await readBody(req);
+    const email = credential && await verifyGoogle(credential);
+    if (!email) return send(res, 401, { error: 'invalid token' });
+    if (!ALLOWED.includes(email)) return send(res, 403, { error: 'not allowed', email });
+    res.setHeader('Set-Cookie', cookie(makeSession(email), SESSION_DAYS * 86400));
+    return send(res, 200, { ok: true, email });
+  }
+  if (req.method === 'POST' && kind === 'logout') { res.setHeader('Set-Cookie', cookie('', 0)); return send(res, 200, { ok: true }); }
+  if (!authed(req)) return send(res, 401, { error: 'unauthorized', google: !!GOOGLE_CLIENT_ID });
+  if (req.method === 'GET' && kind === 'me') return send(res, 200, { email: GOOGLE_CLIENT_ID ? sessionEmail(req) : null });
 
   if (req.method === 'GET' && kind === 'state') {
     const [e, j, s] = await Promise.all([
@@ -84,6 +133,12 @@ async function api(req, res, url) {
 
 function serveStatic(req, res, url) {
   let p = decodeURIComponent(url.pathname); if (p === '/') p = '/index.html';
+  // With Google login on, everything except the login page needs a valid session.
+  if (GOOGLE_CLIENT_ID && !PUBLIC_FILES.has(p) && !sessionEmail(req)) {
+    if (p === '/index.html') { res.writeHead(302, { Location: '/login.html' }); return res.end(); }
+    res.writeHead(401); return res.end('Unauthorized');
+  }
+  if (!GOOGLE_CLIENT_ID && p === '/login.html') { res.writeHead(302, { Location: '/' }); return res.end(); }
   const file = path.join(PUBLIC, path.normalize(p));
   if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => {

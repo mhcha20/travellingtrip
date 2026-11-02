@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登入 · 北海道・大阪 2027</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async></script>
+</head>
+<body>
+<main>
+  <div class="panel login">
+    <h2>北海道・大阪 2027 旅行記錄</h2>
+    <p class="rate">請用 Google（Gmail）帳戶登入。只有已授權嘅帳戶先可以睇到內容。</p>
+    <div id="gbtn"></div>
+    <p class="err" id="err"></p>
+  </div>
+</main>
+<script>
+(async () => {
+  const err = document.getElementById('err');
+  const cfg = await fetch('/api/config').then(r => r.json()).catch(() => ({}));
+  if (!cfg.googleClientId) { location.href = '/'; return; }
+  async function onCred(resp) {
+    err.textContent = '登入中…';
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp.credential }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) { location.href = '/'; return; }
+    err.textContent = r.status === 403 ? `${j.email || '此帳戶'} 未獲授權，請聯絡網站主人。` : '登入失敗，請再試。';
+  }
+  const start = () => {
+    google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: onCred });
+    google.accounts.id.renderButton(document.getElementById('gbtn'), { theme: 'filled_blue', size: 'large', text: 'signin_with', locale: 'zh-TW' });
+  };
+  if (window.google?.accounts?.id) start(); else window.addEventListener('load', start);
+})();
+</script>
+</body>
+</html>
