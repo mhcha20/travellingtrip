@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const receipt = require('./receipt');
 
 const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.TRIP_PASSWORD || '';
@@ -21,7 +22,8 @@ async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS expenses (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
     CREATE TABLE IF NOT EXISTS journal  (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
-    CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL);
+    CREATE TABLE IF NOT EXISTS receipts (id text PRIMARY KEY, mime text NOT NULL, image bytea NOT NULL, created_at timestamptz DEFAULT now());`);
 }
 
 const send = (res, code, body) => {
@@ -106,7 +108,36 @@ async function api(req, res, url) {
       await pool.query(`INSERT INTO ${t} (id, data) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = now()`, [id, data]);
       return send(res, 200, { ok: true });
     }
-    if (req.method === 'DELETE') { await pool.query(`DELETE FROM ${t} WHERE id = $1`, [id]); return send(res, 200, { ok: true }); }
+    if (req.method === 'DELETE') {
+      const r = await pool.query(`DELETE FROM ${t} WHERE id = $1 RETURNING data->>'receiptId' AS rid`, [id]);
+      if (r.rows[0]?.rid) await pool.query('DELETE FROM receipts WHERE id = $1', [r.rows[0].rid]);
+      return send(res, 200, { ok: true });
+    }
+  }
+  if (kind === 'receipts') {
+    if (req.method === 'POST' && !id) {
+      const { image, scan } = await readBody(req);
+      const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/.exec(image || '');
+      if (!m) return send(res, 400, { error: 'bad image' });
+      const rid = 'r' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      await pool.query('INSERT INTO receipts (id, mime, image) VALUES ($1, $2, $3)', [rid, m[1], Buffer.from(m[2], 'base64')]);
+      let extracted = null, scanError = null;
+      if (scan) {
+        if (!receipt.enabled()) scanError = 'disabled';
+        else {
+          try { extracted = await receipt.scanReceipt(image); }
+          catch (e) { console.error('receipt scan failed', e); scanError = 'failed'; }
+        }
+      }
+      return send(res, 200, { id: rid, extracted, scanError });
+    }
+    if (req.method === 'GET' && id) {
+      const r = await pool.query('SELECT mime, image FROM receipts WHERE id = $1', [id]);
+      if (!r.rows.length) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'Content-Type': r.rows[0].mime, 'Cache-Control': 'private, max-age=86400' });
+      return res.end(r.rows[0].image);
+    }
+    if (req.method === 'DELETE' && id) { await pool.query('DELETE FROM receipts WHERE id = $1', [id]); return send(res, 200, { ok: true }); }
   }
   if (req.method === 'PUT' && kind === 'settings' && id) {
     const { value } = await readBody(req);

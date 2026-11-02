@@ -8,6 +8,7 @@ const store = {
 };
 let expenses = [], journal = [], rate = 0.052;
 let editId = null;
+let pendingReceipt = null; // { id, items } attached to the form
 const toast = m => { let t = $('#toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.className = 'show'; clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 3000); };
 async function api(method, path, body) {
   for (;;) {
@@ -76,7 +77,7 @@ function renderExp() {
   const rows = expenses.filter(e => !f || e.category === f).sort((a, b) => a.date.localeCompare(b.date));
   $('#expTable tbody').innerHTML = rows.map(e => `<tr>
     <td>${esc(e.date.slice(5))}</td><td>${esc(e.category)}</td>
-    <td>${esc(e.title)}${e.note ? `<small style="display:block;color:var(--muted)">${esc(e.note)}</small>` : ''}</td>
+    <td>${e.receiptId ? `<button class="rc" data-act="receipt" data-id="${e.id}" title="睇收據">🧾</button> ` : ''}${esc(e.title)}${e.note ? `<small style="display:block;color:var(--muted)">${esc(e.note)}</small>` : ''}</td>
     <td>${fmtMoney(e.amount, e.currency)}${e.currency === 'JPY' ? `<small style="display:block;color:var(--muted)">≈${hk(toHKD(e))}</small>` : ''}</td>
     <td>${esc(e.payer)}</td>
     <td><button class="tag ${e.status}" data-act="toggle" data-id="${e.id}">${e.status === 'paid' ? '已付' : '待付'}</button></td>
@@ -89,18 +90,21 @@ $('#expTable').addEventListener('click', e => {
   const x = expenses.find(v => v.id === b.dataset.id); if (!x) return;
   if (b.dataset.act === 'toggle') { x.status = x.status === 'paid' ? 'pending' : 'paid'; putE(x); renderExp(); }
   if (b.dataset.act === 'del' && confirm('刪除「' + x.title + '」？')) { expenses = expenses.filter(v => v !== x); sync(api('DELETE', 'expenses/' + x.id)); renderExp(); }
+  if (b.dataset.act === 'receipt') return openReceipt(x);
   if (b.dataset.act === 'edit') {
     editId = x.id; const f = $('#expForm');
     for (const k of ['date','category','title','amount','currency','payer','status','note']) f.elements[k].value = x[k];
+    setReceipt(x.receiptId ? { id: x.receiptId, items: x.items || [] } : null, '');
     $('#expForm button.primary').textContent = '更新'; $('#cancelEdit').hidden = false; f.scrollIntoView({ behavior: 'smooth' });
   }
 });
-function resetExpForm() { editId = null; const f = $('#expForm'); const d = f.elements.date.value; f.reset(); f.elements.date.value = d; $('#expForm button.primary').textContent = '新增'; $('#cancelEdit').hidden = true; }
+function resetExpForm() { editId = null; const f = $('#expForm'); const d = f.elements.date.value; f.reset(); f.elements.date.value = d; $('#expForm button.primary').textContent = '新增'; $('#cancelEdit').hidden = true; setReceipt(null); }
 $('#cancelEdit').addEventListener('click', resetExpForm);
 $('#expForm').addEventListener('submit', ev => {
   ev.preventDefault(); const f = ev.target;
   const o = { date: f.date.value, category: f.category.value, title: f.title.value.trim(), amount: parseFloat(f.amount.value), currency: f.currency.value, payer: f.payer.value, status: f.status.value, note: f.note.value.trim() };
   let x;
+  o.receiptId = pendingReceipt?.id || null; o.items = pendingReceipt?.items || [];
   if (editId) { x = expenses.find(v => v.id === editId); Object.assign(x, o); } else { x = { id: uid(), ...o }; expenses.push(x); }
   putE(x); resetExpForm(); renderExp();
 });
@@ -127,12 +131,53 @@ $('#importJson').addEventListener('change', async ev => {
   ev.target.value = '';
 });
 
+// receipts
+const itemsHtml = items => (items || []).map(i => `<li><span>${esc(i.name_zh || i.name)}${i.qty > 1 ? ' ×' + i.qty : ''}<small>${i.name_zh && i.name !== i.name_zh ? esc(i.name) : ''}</small></span><b>${Number(i.price).toLocaleString()}</b></li>`).join('');
+function setReceipt(r, status) {
+  pendingReceipt = r;
+  $('#receiptBox').hidden = !r;
+  if (!r) return;
+  $('#receiptPreview').src = r.preview || '/api/receipts/' + r.id;
+  $('#receiptItems').innerHTML = itemsHtml(r.items);
+  $('#receiptStatus').textContent = status ?? '';
+}
+$('#receiptRemove').addEventListener('click', () => setReceipt(null));
+$('#receiptInput').addEventListener('change', async ev => {
+  const file = ev.target.files[0]; ev.target.value = ''; if (!file) return;
+  const img = await shrink(file, 1600, 0.82);
+  if (!img) return toast('讀唔到呢張相');
+  setReceipt({ id: null, items: [], preview: img }, '上載及辨識中…（約 10–20 秒）');
+  try {
+    const r = await api('POST', 'receipts', { image: img, scan: true });
+    const x = r.extracted, f = $('#expForm');
+    if (x && x.is_receipt) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(x.date)) f.date.value = x.date;
+      if (CATS.includes(x.category)) f.category.value = x.category;
+      f.title.value = x.store_zh && x.store_zh !== x.store ? `${x.store_zh}（${x.store}）` : (x.store || x.store_zh);
+      if (x.total > 0) f.amount.value = x.total;
+      if (x.currency === 'JPY' || x.currency === 'HKD') f.currency.value = x.currency;
+      f.status.value = 'paid';
+      f.note.value = [x.summary_zh, x.payment && '付款：' + x.payment, x.tax > 0 && '稅 ' + x.tax].filter(Boolean).join('；');
+      setReceipt({ id: r.id, items: x.items, preview: img }, '✅ 已自動填好，請核對後撳「新增」');
+    } else {
+      const msg = r.scanError === 'disabled' ? '收據已上載（自動辨識未啟用），請手動填寫' : x && !x.is_receipt ? '似乎唔係收據，請手動填寫' : '辨識失敗，收據已上載，請手動填寫';
+      setReceipt({ id: r.id, items: [], preview: img }, msg);
+    }
+  } catch (e) { console.error(e); setReceipt(null); toast('上載失敗，請再試'); }
+});
+function openReceipt(e) {
+  $('#rdTitle').textContent = e.title;
+  $('#rdItems').innerHTML = itemsHtml(e.items);
+  $('#rdImg').src = '/api/receipts/' + e.receiptId;
+  $('#receiptDialog').showModal();
+}
+
 // journal
-function shrink(file, max = 900) {
+function shrink(file, max = 900, q = 0.7) {
   return new Promise(res => {
     const img = new Image(), url = URL.createObjectURL(file);
     img.onload = () => { const s = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas');
-      c.width = img.width * s; c.height = img.height * s; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', .7)); };
+      c.width = img.width * s; c.height = img.height * s; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', q)); };
     img.onerror = () => res(null); img.src = url;
   });
 }

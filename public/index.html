@@ -24,7 +24,14 @@
   <section id="tab-expenses" class="tab active">
     <div class="cards" id="summary"></div>
     <div class="panel">
-      <h2>新增消費</h2>
+      <div class="row"><h2>新增消費</h2>
+        <label class="btn primary scan-btn">📷 影收據自動入<input type="file" id="receiptInput" accept="image/*" capture="environment" hidden></label>
+      </div>
+      <div id="receiptBox" class="receipt-box" hidden>
+        <img id="receiptPreview" alt="收據">
+        <div><p id="receiptStatus" class="rate"></p><ul id="receiptItems" class="items"></ul>
+        <button type="button" id="receiptRemove" class="del">移除收據</button></div>
+      </div>
       <form id="expForm" class="grid">
         <label>日期<input type="date" name="date" required></label>
         <label>類別<select name="category"></select></label>
@@ -77,6 +84,8 @@
   <section id="tab-bookings" class="tab"><div id="bookingList"></div></section>
   <section id="tab-tips" class="tab"><div id="tipsList"></div></section>
 </main>
+<dialog id="receiptDialog"><form method="dialog"><div class="row"><b id="rdTitle"></b><button>關閉</button></div>
+  <ul id="rdItems" class="items"></ul><img id="rdImg" alt="收據"></form></dialog>
 <footer>資料儲存於雲端資料庫，兩個人用同一網址即時共用。可用「備份 JSON」自行匯出。</footer>
 <script src="data.js"></script>
 <script src="app.js"></script>
