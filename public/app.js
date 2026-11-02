@@ -190,6 +190,11 @@ const walk = m => m <= 2500 ? `步行約 ${Math.max(1, Math.round(m / 80))} 分�
 const placeLL = p => p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area] || null;
 const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`)) + (p.gplaceId ? '&query_place_id=' + encodeURIComponent(p.gplaceId) : '');
 const sourceLabel = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('threads') ? 'Threads' : h.includes('instagram') ? 'Instagram' : h.includes('xiaohongshu') || h.includes('xhslink') ? '小紅書' : h.includes('facebook') ? 'Facebook' : h.includes('youtube') || h.includes('youtu.be') ? 'YouTube' : h; } catch { return '連結'; } };
+const SITE_NAMES = { 'tabelog.com': '食べログ', 'hitosara.com': 'ヒトサラ', 'retty.me': 'Retty', 'autoreserve.com': 'AutoReserve', 'hotpepper.jp': 'Hot Pepper', 'travel.rakuten.co.jp': '楽天トラベル', 'jalan.net': 'じゃらん', 'google.com': 'Google', 'instagram.com': 'Instagram', 'threads.com': 'Threads', 'threads.net': 'Threads', 'tripadvisor.com': 'Tripadvisor', 'trip.com': 'Trip.com' };
+const siteName = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); const k = Object.keys(SITE_NAMES).find(d => h === d || h.endsWith('.' + d)); return k ? SITE_NAMES[k] : h; } catch { return '連結'; } };
+// Escapes the note, turns URLs into short tappable chips, and keeps chips on one line under "來源：".
+const linkify = t => esc(t).replace(/https?:\/\/[^\s<>"']+/g, u => { const url = u.replace(/&amp;/g, '&'); return `<a class="src" href="${esc(url)}" target="_blank" rel="noopener">🔗 ${esc(siteName(url))}</a>`; })
+  .replace(/(<\/a>)\n(?=<a class="src")/g, '$1 ').replace(/(來源：)\n(?=<a class="src")/g, '$1 ');
 const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
 function ensureMap() {
   if (map || !window.L) return;
@@ -213,7 +218,7 @@ function renderPlaces() {
     ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
     ${p.gplaceId && gEnabled ? `<div class="gbox" data-g="${esc(p.gplaceId)}"><p class="rate">載入 Google 食物相…</p></div>` : ''}
     ${(p.photos || []).length ? `<div class="gallery" data-id="${p.id}">${p.photos.map((ph, i) => `<img loading="lazy" src="/api/photos/${esc(ph)}" data-i="${i}" alt="">`).join('')}</div>` : ''}
-    ${p.note ? `<p class="j-text">${esc(p.note)}</p>` : ''}
+    ${p.note ? `<p class="j-text">${linkify(p.note)}</p>` : ''}
     <div class="actions"><a class="btn primary" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google Maps</a>
       <a class="btn" href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent((p.query || p.name + ' ' + p.area) + (['food', 'stay'].includes(p.kind) ? ' 料理' : ''))}" target="_blank" rel="noopener">🔍 ${['food', 'stay'].includes(p.kind) ? '食物相' : 'Google 圖片'}</a>
       ${safeUrl(p.url) ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">🔗 ${esc(sourceLabel(p.url))}</a>` : ''}

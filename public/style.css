@@ -191,3 +191,6 @@ button:disabled{opacity:.65;cursor:progress}
 @media (prefers-reduced-motion:reduce){#importStatus.busy{animation:none}}
 .flash{animation:flash 1.8s ease-out}
 @keyframes flash{0%{background:color-mix(in srgb,var(--ice) 45%,transparent)}100%{background:var(--card-solid)}}
+.j-text{overflow-wrap:anywhere}
+a.src{display:inline-block;margin:2px 2px;padding:1px 10px;border-radius:99px;font-size:12px;text-decoration:none;
+  background:var(--accent-soft);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);white-space:nowrap}
