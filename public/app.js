@@ -181,7 +181,7 @@ $('#placeForm [name=kind]').innerHTML = Object.entries(KINDS).map(([k, v]) => `<
 let gEnabled = false; const gCache = new Map();
 fetch('/api/config').then(r => r.json()).then(c => { gEnabled = !!c.places; $('#gSearchBtn').hidden = !gEnabled; if (gEnabled) renderPlaces(); }).catch(() => {});
 let formPhotos = []; // [{id} existing | {data} new]
-const MAX_PHOTOS = 5;
+const MAX_PHOTOS = 10;
 let placeEditId = null, placeFilter = '', kindFilter = '', map = null, markers = null, myPos = null, meMarker = null;
 const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
@@ -310,13 +310,15 @@ $('#placeForm').addEventListener('submit', async ev => {
 // Google Places: food photos + rating
 async function loadGBox(box) {
   const id = box.dataset.g; box.removeAttribute('data-g');
+  const own = (places.find(p => p.gplaceId === id)?.photos || []).length;
   try {
     if (!gCache.has(id)) gCache.set(id, fetch('/api/gplace/' + encodeURIComponent(id)).then(r => { if (!r.ok) throw 0; return r.json(); }));
     const d = await gCache.get(id);
     const by = [...new Set(d.photos.map(p => p.by).filter(Boolean))].slice(0, 3).join('、');
     box.innerHTML = `${d.rating ? `<p class="grating">⭐ <b>${d.rating.toFixed(1)}</b> <small>(${d.ratings.toLocaleString()} 個 Google 評分)</small>${d.foodCount ? ` · 🍜 ${d.foodCount} 張食物相` : ''}</p>` : ''}
       ${d.photos.length ? `<div class="gallery">${d.photos.map(p => `<img loading="lazy" src="/api/gplace/photo?w=600&name=${encodeURIComponent(p.name)}" data-full="/api/gplace/photo?w=1400&name=${encodeURIComponent(p.name)}" alt="">`).join('')}</div>
-      <p class="gattr">相片來自 Google Maps${by ? '：' + esc(by) : ''}</p>` : '<p class="rate">Google 未有相片</p>'}`;
+      <p class="gattr">相片來自 Google Maps${by ? '：' + esc(by) : ''}</p>` : '<p class="rate">Google 未有相片</p>'}
+      ${d.foodCount < 8 && own < 8 - d.foodCount ? `<p class="ghint">Google 只有 ${d.foodCount} 張食物相，可以撳 ✎ 上載原帖截圖補足 ${8 - d.foodCount - own} 張</p>` : ''}`;
   } catch { gCache.delete(id); box.innerHTML = '<p class="rate">暫時載入唔到 Google 相片</p>'; }
 }
 $('#gSearchBtn').addEventListener('click', async () => {

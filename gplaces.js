@@ -105,33 +105,20 @@ async function details(id) {
   if (!PLACE_ID.test(id)) throw new Error('bad place id');
   const hit = cache.get(id); if (hit && Date.now() - hit.t < TTL) return hit.v;
   const mask = 'id,displayName,rating,userRatingCount,googleMapsUri,photos,location';
-  // Each language listing returns a different set of up to 10 photos, so widen until we have enough food shots.
-  const LANG_ROUNDS = [['zh-TW', 'ja', 'en'], ['ko', 'zh-CN', 'th'], ['fr', 'es', 'de'], ['it', 'pt', 'vi']];
-  const WANT = 10, MIN = 8;
-  const seen = new Set(), hashes = new Set(), pool = [];
-  const add = src => { for (const ph of toPhotos(src?.photos)) { const k = ph.name.split('/photos/')[1]; if (!seen.has(k)) { seen.add(k); pool.push(ph); } } };
-  let base = null, related = [], food = [], canClassify = true, unique = 0;
-  for (let round = 0; round < LANG_ROUNDS.length; round++) {
-    const res = await Promise.all(LANG_ROUNDS[round].map(l => placeOne(id, l, mask).catch(() => null)));
-    if (round === 0) {
-      base = res.find(Boolean); if (!base) throw new Error('place not found');
-      related = await relatedPlaces(base, [res[1]?.displayName?.text, res[2]?.displayName?.text].filter(Boolean));
-      related.forEach(add);
-    }
-    const before = pool.length; res.forEach(add);
-    const fresh = await fetchThumbs(round === 0 ? pool : pool.slice(before), hashes);
-    unique += fresh.length;
-    if (!fresh.length) continue;
-    let picked = null;
-    try { picked = await pickFood(fresh); } catch (e) { console.error('food pick failed', e.message); }
-    if (picked === null) { canClassify = false; break; }
-    food.push(...picked);
-    if (food.length >= WANT) break;
-    if (food.length >= MIN && round >= 1) break;
-  }
+  // Google exposes at most 10 photos per listing (other languages return the same pictures),
+  // so pool this listing with any same-name related listings, drop duplicates, then pick food shots.
+  const [zh, ja] = await Promise.all(['zh-TW', 'ja'].map(l => placeOne(id, l, mask).catch(() => null)));
+  const base = zh || ja; if (!base) throw new Error('place not found');
+  const related = await relatedPlaces(base, [ja?.displayName?.text, base.displayName?.text].filter(Boolean));
+  const seen = new Set(), pool = [];
+  for (const src of [zh || ja, ...related]) for (const ph of toPhotos(src?.photos)) { const k = ph.name.split('/photos/')[1]; if (!seen.has(k)) { seen.add(k); pool.push(ph); } }
+  const unique = await fetchThumbs(pool.slice(0, 30), new Set());
+  let food = null;
+  try { food = await pickFood(unique); } catch (e) { console.error('food pick failed', e.message); }
+  const WANT = 10;
   // Only food shots when Claude found some; otherwise show what Google has.
-  const chosen = (canClassify && food.length ? food : pool).slice(0, WANT);
-  const v = { rating: base.rating ?? null, ratings: base.userRatingCount ?? 0, mapsUri: base.googleMapsUri || null, photos: chosen, foodCount: canClassify ? Math.min(food.length, WANT) : 0, scanned: pool.length, unique, related: related.length };
+  const chosen = (food && food.length ? food : unique.map(({ name, by }) => ({ name, by }))).slice(0, WANT);
+  const v = { rating: base.rating ?? null, ratings: base.userRatingCount ?? 0, mapsUri: base.googleMapsUri || null, photos: chosen, foodCount: food ? Math.min(food.length, WANT) : 0, unique: unique.length, related: related.length };
   cache.set(id, { t: Date.now(), v });
   return v;
 }
