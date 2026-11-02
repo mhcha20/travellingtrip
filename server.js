@@ -76,6 +76,8 @@ const authed = req => {
   const a = Buffer.from(req.headers['x-trip-password'] || ''), b = Buffer.from(PASSWORD);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
+const importJobs = new Map();
+setInterval(() => { for (const [k, v] of importJobs) if (Date.now() - v.started > 15 * 60e3) importJobs.delete(k); }, 60e3).unref();
 const TABLES = { expenses: 'expenses', journal: 'journal', places: 'places' };
 
 async function api(req, res, url) {
@@ -120,12 +122,24 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
   }
-  if (kind === 'linkimport' && req.method === 'POST') {
-    if (!process.env.ANTHROPIC_API_KEY) return send(res, 503, { error: 'disabled' });
-    const { url: link, text } = await readBody(req);
-    try { new URL(link); } catch { return send(res, 400, { error: 'bad url' }); }
-    try { return send(res, 200, await linkimport.importLink(String(link).slice(0, 2000), typeof text === 'string' ? text : '')); }
-    catch (e) { console.error('linkimport', e.message); return send(res, 502, { error: 'import failed' }); }
+  // Link import runs as a background job: POST starts it, GET /api/linkimport/<job> polls.
+  // (A single long request gets cut off by mobile networks / app switching.)
+  if (kind === 'linkimport') {
+    if (req.method === 'POST' && !id) {
+      if (!process.env.ANTHROPIC_API_KEY) return send(res, 503, { error: 'disabled' });
+      const { url: link, text } = await readBody(req);
+      try { new URL(link); } catch { return send(res, 400, { error: 'bad url' }); }
+      const job = 'j' + crypto.randomBytes(8).toString('hex');
+      importJobs.set(job, { status: 'running', started: Date.now() });
+      linkimport.importLink(String(link).slice(0, 2000), typeof text === 'string' ? text : '')
+        .then(result => importJobs.set(job, { status: 'done', result, started: Date.now() }))
+        .catch(e => { console.error('linkimport', e.message); importJobs.set(job, { status: 'error', started: Date.now() }); });
+      return send(res, 202, { job });
+    }
+    if (req.method === 'GET' && id) {
+      const j = importJobs.get(id);
+      return j ? send(res, 200, j) : send(res, 404, { error: 'unknown job' });
+    }
   }
   if (kind === 'gplace') {
     if (!gplaces.enabled()) return send(res, 503, { error: 'disabled' });

@@ -320,13 +320,26 @@ $('#importBtn').addEventListener('click', async () => {
   if (!/^https?:\/\//.test(link)) { f.url.focus(); st.hidden = false; st.textContent = '請先貼條連結'; return; }
   st.hidden = false; btn.disabled = true; btn.textContent = '⏳ 搵緊…'; st.classList.add('busy');
   const t0 = Date.now();
-  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); st.textContent = `⏳ 讀緊帖文、上網核實緊資料…已等 ${s} 秒（通常 30–90 秒，請留喺呢版唔好轉 App）`; };
+  const tick = () => { const s = Math.round((Date.now() - t0) / 1000); st.textContent = `⏳ 讀緊帖文、上網核實緊資料…已等 ${s} 秒（通常 30–90 秒，可以照用其他 App，返嚟會繼續）`; };
   tick(); const timer = setInterval(tick, 1000);
   try {
     const r = await fetch('/api/linkimport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link, text }) });
     if (r.status === 503) { st.textContent = '自動填寫未啟用（需要 Anthropic API key）'; return; }
     if (!r.ok) throw 0;
-    const d = await r.json(), x = d.extracted;
+    const { job } = await r.json();
+    // Poll the background job; tolerate brief network drops (e.g. switching apps).
+    let d = null, misses = 0;
+    while (Date.now() - t0 < 240e3) {
+      await new Promise(res => setTimeout(res, 2000));
+      try {
+        const j = await fetch('/api/linkimport/' + job).then(r => r.ok ? r.json() : Promise.reject(r.status));
+        misses = 0;
+        if (j.status === 'done') { d = j.result; break; }
+        if (j.status === 'error') throw 'job';
+      } catch (e) { if (e === 'job' || e === 404 || ++misses > 15) throw 0; }
+    }
+    if (!d) throw 0;
+    const x = d.extracted;
     if (!x) { st.textContent = '讀唔到呢條連結嘅內容。請打開「貼帖文文字」，貼上帖文文字再試。'; $('#importTextBox').open = true; return; }
     if (!x.found) { st.textContent = `認唔到係邊個地方：${x.reason}。可以貼帖文文字再試，或者自己填。`; $('#importTextBox').open = true; return; }
     f.name.value = x.name_local && x.name_local !== x.name ? `${x.name}（${x.name_local}）` : x.name;
@@ -341,7 +354,7 @@ $('#importBtn').addEventListener('click', async () => {
     st.textContent = `${conf}：${x.reason}${d.pageOk ? '' : '（帖文讀唔到，用咗你貼嘅文字）'} — 請核對後撳「儲存」。`;
     f.elements.name.scrollIntoView({ behavior: 'smooth', block: 'center' });
     ['name', 'area', 'kind', 'note'].forEach(k => { const el = f.elements[k]; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); });
-  } catch { st.textContent = '自動填寫失敗（可能網絡中斷或者轉咗 App），請再撳一次。'; }
+  } catch { st.textContent = '自動填寫失敗，請再撳一次或者自己填。'; }
   finally { clearInterval(timer); btn.disabled = false; btn.textContent = '✨ 自動填寫'; st.classList.remove('busy'); }
 });
 
