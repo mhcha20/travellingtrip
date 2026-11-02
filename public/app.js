@@ -6,7 +6,7 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { alert('無法儲存（瀏覽器儲存空間已滿或被封鎖）'); } }
 };
-let expenses = [], journal = [], rate = 0.052;
+let expenses = [], journal = [], places = [], rate = 0.052;
 let editId = null;
 let pendingReceipt = null; // { id, items } attached to the form
 const toast = m => { let t = $('#toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.className = 'show'; clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 3000); };
@@ -117,7 +117,7 @@ $('#exportCsv').addEventListener('click', () => {
   const lines = expenses.slice().sort((a, b) => a.date.localeCompare(b.date)).map(e => [e.date, e.category, e.title, e.amount, e.currency, toHKD(e).toFixed(2), e.payer, e.status === 'paid' ? '已付' : '待付', e.note].map(q).join(','));
   download('expenses.csv', '﻿' + [head.map(q).join(','), ...lines].join('\n'), 'text/csv');
 });
-$('#exportJson').addEventListener('click', () => download('trip-backup.json', JSON.stringify({ expenses, journal, rate }), 'application/json'));
+$('#exportJson').addEventListener('click', () => download('trip-backup.json', JSON.stringify({ expenses, journal, places, rate }), 'application/json'));
 $('#importJson').addEventListener('change', async ev => {
   const file = ev.target.files[0]; if (!file) return;
   try {
@@ -125,8 +125,8 @@ $('#importJson').addEventListener('change', async ev => {
     if (!Array.isArray(d.expenses) || !Array.isArray(d.journal)) throw 0;
     if (!confirm('匯入會取代目前所有資料，確定？')) return;
     await api('POST', 'import', d);
-    expenses = d.expenses; journal = d.journal; if (d.rate > 0) { rate = d.rate; $('#rate').value = rate; }
-    renderExp(); renderJournal();
+    expenses = d.expenses; journal = d.journal; if (Array.isArray(d.places)) places = d.places; if (d.rate > 0) { rate = d.rate; $('#rate').value = rate; }
+    renderExp(); renderJournal(); renderPlaces();
   } catch { alert('匯入失敗或檔案格式不正確'); }
   ev.target.value = '';
 });
@@ -172,6 +172,71 @@ function openReceipt(e) {
   $('#receiptDialog').showModal();
 }
 
+// places (想去)
+const AREAS = ['登別', '札幌', '小樽', '洞爺湖', '新千歲機場', '北海道其他', '大阪', '京都', '神戶', '奈良', '關西其他'];
+const KINDS = { food: '🍜 美食', sight: '🏔 景點', shop: '🛍 購物', stay: '🏨 住宿', other: '📌 其他' };
+const AREA_CENTER = { 登別: [42.4966, 141.1440], 札幌: [43.0618, 141.3545], 小樽: [43.1907, 140.9947], 洞爺湖: [42.5650, 140.8190], 新千歲機場: [42.7752, 141.6923], 大阪: [34.6937, 135.5023], 京都: [35.0116, 135.7681], 神戶: [34.6901, 135.1955], 奈良: [34.6851, 135.8048] };
+$('#placeForm [name=area]').innerHTML = AREAS.map(x => `<option>${x}</option>`).join('');
+$('#placeForm [name=kind]').innerHTML = Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+let placeEditId = null, placeFilter = '', map = null, markers = null;
+const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`));
+const sourceLabel = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('threads') ? 'Threads' : h.includes('instagram') ? 'Instagram' : h.includes('xiaohongshu') || h.includes('xhslink') ? '小紅書' : h.includes('facebook') ? 'Facebook' : h.includes('youtube') || h.includes('youtu.be') ? 'YouTube' : h; } catch { return '連結'; } };
+const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
+function ensureMap() {
+  if (map || !window.L) return;
+  map = L.map('placeMap', { scrollWheelZoom: false }).setView([39.5, 138.5], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  markers = L.layerGroup().addTo(map);
+}
+function renderPlaces() {
+  const areasUsed = AREAS.filter(a => places.some(p => p.area === a));
+  $('#placeFilters').innerHTML = ['', ...areasUsed].map(a => `<button type="button" class="chip ${a === placeFilter ? 'on' : ''}" data-area="${a}">${a || '全部'} <small>${places.filter(p => !a || p.area === a).length}</small></button>`).join('');
+  const list = places.filter(p => !placeFilter || p.area === placeFilter)
+    .sort((x, y) => (x.status === 'done') - (y.status === 'done') || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
+  $('#placeList').innerHTML = list.map(p => `<div class="card place ${p.status === 'done' ? 'done' : ''} ${['大阪', '京都', '神戶', '奈良', '關西其他'].includes(p.area) ? 'osaka' : ''}">
+    <div class="j-head"><div><span class="region">${esc(p.area)}</span> <span class="kind">${KINDS[p.kind] || ''}</span>${p.unsure ? ' <span class="unsure">位置待確認</span>' : ''}</div>
+      <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
+    <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
+    ${p.note ? `<p class="j-text">${esc(p.note)}</p>` : ''}
+    <div class="actions"><a class="btn primary" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google Maps</a>
+      ${safeUrl(p.url) ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">🔗 ${esc(sourceLabel(p.url))}</a>` : ''}
+      <button data-act="toggle" data-id="${p.id}">${p.status === 'done' ? '改返想去' : '標記去咗'}</button></div></div>`).join('')
+    || '<p class="rate">未有地點。見到想去嘅地方，貼條連結落嚟啦！</p>';
+  ensureMap();
+  if (!map) return;
+  markers.clearLayers();
+  const pts = [];
+  list.forEach(p => {
+    const ll = p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area]; if (!ll) return;
+    pts.push(ll);
+    L.circleMarker(ll, { radius: 8, weight: 2, color: '#fff', fillColor: p.status === 'done' ? '#2f8a5b' : p.unsure ? '#c7782c' : '#2d6a96', fillOpacity: .95 })
+      .bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.area)}${p.unsure ? '（位置待確認）' : ''}<br><a href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">開 Google Maps</a>`).addTo(markers);
+  });
+  if (pts.length === 1) map.setView(pts[0], 13); else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
+}
+$('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
+$('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
+function resetPlaceForm() { placeEditId = null; $('#placeForm').reset(); $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
+$('#placeCancel').addEventListener('click', resetPlaceForm);
+$('#placeList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const p = places.find(x => x.id === b.dataset.id); if (!p) return;
+  if (b.dataset.act === 'toggle') { p.status = p.status === 'done' ? 'want' : 'done'; sync(api('PUT', 'places/' + p.id, p)); renderPlaces(); }
+  if (b.dataset.act === 'del' && confirm('刪除「' + p.name + '」？')) { places = places.filter(x => x !== p); sync(api('DELETE', 'places/' + p.id)); renderPlaces(); }
+  if (b.dataset.act === 'edit') {
+    placeEditId = p.id; const f = $('#placeForm');
+    for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note']) f.elements[k].value = p[k] ?? '';
+    $('#placeFormTitle').textContent = '編輯地點'; $('#placeCancel').hidden = false; f.scrollIntoView({ behavior: 'smooth' });
+  }
+});
+$('#placeForm').addEventListener('submit', ev => {
+  ev.preventDefault(); const f = ev.target;
+  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim() };
+  let p;
+  if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
+  sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();
+});
+
 // journal
 function shrink(file, max = 900, q = 0.7) {
   return new Promise(res => {
@@ -212,9 +277,9 @@ $('#tipsList').innerHTML = `<div class="panel"><h2>行前清單</h2>${ul(TIPS.ch
   try {
     let st = await api('GET', 'state');
     if (!st.seeded) { await Promise.all(SEED_EXPENSES.map(x => api('PUT', 'expenses/' + x.id, x))); await api('PUT', 'settings/seeded', { value: true }); st = await api('GET', 'state'); }
-    expenses = st.expenses; journal = st.journal; rate = st.rate;
+    expenses = st.expenses; journal = st.journal; places = st.places || []; rate = st.rate;
   } catch (e) { console.error(e); toast('無法載入資料'); }
-  $('#rate').value = rate; renderExp(); renderJournal();
+  $('#rate').value = rate; renderExp(); renderJournal(); renderPlaces();
   try {
     const me = await api('GET', 'me');
     if (me.email) {

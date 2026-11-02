@@ -22,6 +22,7 @@ async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS expenses (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
     CREATE TABLE IF NOT EXISTS journal  (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
+    CREATE TABLE IF NOT EXISTS places   (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
     CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL);
     CREATE TABLE IF NOT EXISTS receipts (id text PRIMARY KEY, mime text NOT NULL, image bytea NOT NULL, created_at timestamptz DEFAULT now());`);
 }
@@ -72,7 +73,7 @@ const authed = req => {
   const a = Buffer.from(req.headers['x-trip-password'] || ''), b = Buffer.from(PASSWORD);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
-const TABLES = { expenses: 'expenses', journal: 'journal' };
+const TABLES = { expenses: 'expenses', journal: 'journal', places: 'places' };
 
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
@@ -92,12 +93,13 @@ async function api(req, res, url) {
   if (req.method === 'GET' && kind === 'me') return send(res, 200, { email: GOOGLE_CLIENT_ID ? sessionEmail(req) : null });
 
   if (req.method === 'GET' && kind === 'state') {
-    const [e, j, s] = await Promise.all([
+    const [e, j, pl, s] = await Promise.all([
       pool.query('SELECT data FROM expenses ORDER BY updated_at'),
       pool.query('SELECT data FROM journal ORDER BY updated_at'),
+      pool.query('SELECT data FROM places ORDER BY updated_at'),
       pool.query('SELECT key, value FROM settings')]);
     const settings = Object.fromEntries(s.rows.map(r => [r.key, r.value]));
-    return send(res, 200, { expenses: e.rows.map(r => r.data), journal: j.rows.map(r => r.data), rate: settings.rate ?? 0.052, seeded: !!settings.seeded });
+    return send(res, 200, { expenses: e.rows.map(r => r.data), journal: j.rows.map(r => r.data), places: pl.rows.map(r => r.data), rate: settings.rate ?? 0.052, seeded: !!settings.seeded });
   }
   if (TABLES[kind] && id) {
     const t = TABLES[kind];
@@ -153,6 +155,10 @@ async function api(req, res, url) {
       await c.query('DELETE FROM expenses'); await c.query('DELETE FROM journal');
       for (const e of d.expenses) await c.query('INSERT INTO expenses (id, data) VALUES ($1, $2)', [e.id, e]);
       for (const j of d.journal) await c.query('INSERT INTO journal (id, data) VALUES ($1, $2)', [j.id, j]);
+      if (Array.isArray(d.places)) {
+        await c.query('DELETE FROM places');
+        for (const p of d.places) await c.query('INSERT INTO places (id, data) VALUES ($1, $2)', [p.id, p]);
+      }
       await c.query("INSERT INTO settings (key, value) VALUES ('seeded', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'");
       if (d.rate > 0) await c.query("INSERT INTO settings (key, value) VALUES ('rate', $1) ON CONFLICT (key) DO UPDATE SET value = $1", [JSON.stringify(d.rate)]);
       await c.query('COMMIT');
