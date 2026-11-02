@@ -96,8 +96,18 @@
   </section>
 
   <section id="tab-places" class="tab">
+    <div class="panel near-panel">
+      <div class="row">
+        <button type="button" id="nearBtn" class="btn primary">📍 我附近</button>
+        <span class="actions">
+          <a id="nearFood" class="btn" href="https://www.google.com/maps/search/restaurants" target="_blank" rel="noopener">🍜 Google Maps 附近餐廳</a>
+        </span>
+      </div>
+      <p id="nearStatus" class="rate">撳「我附近」，會按距離排好你想去嘅地方。</p>
+    </div>
     <div class="panel map-panel"><div id="placeMap" class="place-map"></div>
-      <div class="row filters" id="placeFilters"></div></div>
+      <div class="row filters" id="placeFilters"></div>
+      <div class="row filters" id="kindFilters"></div></div>
     <div class="panel">
       <h2 id="placeFormTitle">新增想去地點</h2>
       <form id="placeForm" class="grid">

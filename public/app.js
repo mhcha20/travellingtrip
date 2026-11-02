@@ -178,7 +178,12 @@ const KINDS = { food: '🍜 美食', sight: '🏔 景點', shop: '🛍 購物', 
 const AREA_CENTER = { 登別: [42.4966, 141.1440], 札幌: [43.0618, 141.3545], 小樽: [43.1907, 140.9947], 洞爺湖: [42.5650, 140.8190], 新千歲機場: [42.7752, 141.6923], 大阪: [34.6937, 135.5023], 京都: [35.0116, 135.7681], 神戶: [34.6901, 135.1955], 奈良: [34.6851, 135.8048] };
 $('#placeForm [name=area]').innerHTML = AREAS.map(x => `<option>${x}</option>`).join('');
 $('#placeForm [name=kind]').innerHTML = Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-let placeEditId = null, placeFilter = '', map = null, markers = null;
+let placeEditId = null, placeFilter = '', kindFilter = '', map = null, markers = null, myPos = null, meMarker = null;
+const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+const fmtDist = m => m < 1000 ? `${Math.round(m / 10) * 10} 米` : m < 100e3 ? `${(m / 1000).toFixed(1)} 公里` : `${Math.round(m / 1000)} 公里`;
+const walk = m => m <= 2500 ? `步行約 ${Math.max(1, Math.round(m / 80))} 分鐘` : m <= 30e3 ? '建議搭車' : '';
+const placeLL = p => p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area] || null;
 const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`));
 const sourceLabel = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('threads') ? 'Threads' : h.includes('instagram') ? 'Instagram' : h.includes('xiaohongshu') || h.includes('xhslink') ? '小紅書' : h.includes('facebook') ? 'Facebook' : h.includes('youtube') || h.includes('youtu.be') ? 'YouTube' : h; } catch { return '連結'; } };
 const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
@@ -191,12 +196,17 @@ function ensureMap() {
 function renderPlaces() {
   const areasUsed = AREAS.filter(a => places.some(p => p.area === a));
   $('#placeFilters').innerHTML = ['', ...areasUsed].map(a => `<button type="button" class="chip ${a === placeFilter ? 'on' : ''}" data-area="${a}">${a || '全部'} <small>${places.filter(p => !a || p.area === a).length}</small></button>`).join('');
-  const list = places.filter(p => !placeFilter || p.area === placeFilter)
-    .sort((x, y) => (x.status === 'done') - (y.status === 'done') || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
+  const kindsUsed = Object.keys(KINDS).filter(k => places.some(p => p.kind === k));
+  $('#kindFilters').innerHTML = kindsUsed.length > 1 ? ['', ...kindsUsed].map(k => `<button type="button" class="chip ${k === kindFilter ? 'on' : ''}" data-kind="${k}">${k ? KINDS[k] : '全部類型'}</button>`).join('') : '';
+  const list = places.filter(p => (!placeFilter || p.area === placeFilter) && (!kindFilter || p.kind === kindFilter));
+  list.forEach(p => { const ll = placeLL(p); p._d = myPos && ll ? distM(myPos, ll) : null; });
+  if (myPos) list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || (x._d ?? 1e12) - (y._d ?? 1e12));
+  else list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
   $('#placeList').innerHTML = list.map(p => `<div class="card place ${p.status === 'done' ? 'done' : ''} ${['大阪', '京都', '神戶', '奈良', '關西其他'].includes(p.area) ? 'osaka' : ''}">
     <div class="j-head"><div><span class="region">${esc(p.area)}</span> <span class="kind">${KINDS[p.kind] || ''}</span>${p.unsure ? ' <span class="unsure">位置待確認</span>' : ''}</div>
       <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
     <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
+    ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
     ${p.note ? `<p class="j-text">${esc(p.note)}</p>` : ''}
     <div class="actions"><a class="btn primary" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google Maps</a>
       ${safeUrl(p.url) ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">🔗 ${esc(sourceLabel(p.url))}</a>` : ''}
@@ -207,13 +217,35 @@ function renderPlaces() {
   markers.clearLayers();
   const pts = [];
   list.forEach(p => {
-    const ll = p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area]; if (!ll) return;
+    const ll = placeLL(p); if (!ll) return;
     pts.push(ll);
     L.circleMarker(ll, { radius: 8, weight: 2, color: '#fff', fillColor: p.status === 'done' ? '#2f8a5b' : p.unsure ? '#c7782c' : '#2d6a96', fillOpacity: .95 })
       .bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.area)}${p.unsure ? '（位置待確認）' : ''}<br><a href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">開 Google Maps</a>`).addTo(markers);
   });
-  if (pts.length === 1) map.setView(pts[0], 13); else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
+  if (meMarker) { meMarker.remove(); meMarker = null; }
+  if (myPos) {
+    meMarker = L.marker(myPos, { icon: L.divIcon({ className: 'me-dot', iconSize: [18, 18] }), zIndexOffset: 1000 }).bindPopup('你喺度').addTo(map);
+    const near = list.filter(p => p._d != null && p._d < 30e3).slice(0, 5).map(placeLL);
+    if (near.length) map.fitBounds([myPos, ...near], { padding: [30, 30], maxZoom: 16 }); else map.setView(myPos, 15);
+  } else if (pts.length === 1) map.setView(pts[0], 13); else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
 }
+$('#kindFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; kindFilter = b.dataset.kind; renderPlaces(); });
+$('#nearBtn').addEventListener('click', () => {
+  const st = $('#nearStatus');
+  if (!navigator.geolocation) { st.textContent = '呢部機唔支援定位。'; return; }
+  st.textContent = '定位中…'; $('#nearBtn').disabled = true;
+  navigator.geolocation.getCurrentPosition(pos => {
+    $('#nearBtn').disabled = false;
+    myPos = [pos.coords.latitude, pos.coords.longitude];
+    $('#nearFood').href = `https://www.google.com/maps/search/restaurants/@${myPos[0]},${myPos[1]},16z`;
+    placeFilter = ''; renderPlaces();
+    const near = places.filter(p => p.status !== 'done' && p._d != null).sort((x, y) => x._d - y._d)[0];
+    st.innerHTML = near ? `最近：<b>${esc(near.name)}</b>（${fmtDist(near._d)}）· 定位準確度約 ${Math.round(pos.coords.accuracy)} 米` : '附近未有想去嘅地方，可以撳右邊搵附近餐廳。';
+  }, err => {
+    $('#nearBtn').disabled = false;
+    st.textContent = err.code === 1 ? '你拒絕咗定位權限。請喺瀏覽器設定容許此網站使用位置。' : '定位失敗，請到戶外或者開 GPS 再試。';
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+});
 $('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
 $('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
 function resetPlaceForm() { placeEditId = null; $('#placeForm').reset(); $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }

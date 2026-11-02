@@ -157,3 +157,8 @@ a.btn{text-decoration:none;color:var(--text);font-size:14px;display:inline-block
 a.btn.primary{color:#fff}
 @media (prefers-color-scheme:dark){a.btn.primary,.chip.on{color:#0a1220}}
 .leaflet-popup-content a{color:#2d6a96}
+.near-panel .row{flex-wrap:wrap}
+#nearBtn{border-radius:99px;padding:9px 18px}
+.dist{margin:0 0 6px;font-size:13px;color:var(--accent);font-weight:500}
+.place.osaka .dist{color:var(--warm)}
+.me-dot{background:#1a73e8;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 6px rgba(26,115,232,.25)}
