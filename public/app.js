@@ -318,7 +318,7 @@ $('#importBtn').addEventListener('click', async () => {
   const f = $('#placeForm'), st = $('#importStatus'), btn = $('#importBtn');
   const link = f.url.value.trim(), text = $('#importText').value.trim();
   if (!/^https?:\/\//.test(link)) { f.url.focus(); st.hidden = false; st.textContent = '請先貼條連結'; return; }
-  st.hidden = false; st.textContent = '⏳ 讀緊帖文同搵緊地點…（大約 10–40 秒）'; btn.disabled = true;
+  st.hidden = false; st.textContent = '⏳ 讀緊帖文、上網核實緊資料…（大約 30–90 秒）'; btn.disabled = true;
   try {
     const r = await fetch('/api/linkimport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link, text }) });
     if (r.status === 503) { st.textContent = '自動填寫未啟用（需要 Anthropic API key）'; return; }
@@ -330,7 +330,8 @@ $('#importBtn').addEventListener('click', async () => {
     if (AREAS.includes(x.area)) f.area.value = x.area;
     if (KINDS[x.kind]) f.kind.value = x.kind;
     f.query.value = x.maps_query || '';
-    f.note.value = x.note || '';
+    const src = (x.sources || []).filter(u => /^https?:\/\//.test(u)).slice(0, 3);
+    f.note.value = [x.note, x.verified && '🔎 網上核實：' + x.verified, src.length && '來源：\n' + src.join('\n')].filter(Boolean).join('\n\n');
     f.gplaceId.value = ''; f.lat.value = ''; f.lng.value = '';
     showCandidates(d.candidates || [], f);
     const conf = { high: '✅ 好肯定', medium: '🟡 幾肯定', low: '⚠️ 唔太肯定' }[x.confidence] || '';

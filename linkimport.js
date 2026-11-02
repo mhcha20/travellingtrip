@@ -54,7 +54,7 @@ async function readPage(raw) {
 
 const SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['found', 'name', 'name_local', 'area', 'kind', 'maps_query', 'note', 'confidence', 'reason'],
+  required: ['found', 'name', 'name_local', 'area', 'kind', 'maps_query', 'note', 'confidence', 'reason', 'verified', 'sources'],
   properties: {
     found: { type: 'boolean', description: 'true if a specific place (shop, restaurant, hotel, sight) was identified' },
     name: { type: 'string', description: 'Place name in Traditional Chinese as Hong Kong people would say it (keep brand names as-is)' },
@@ -64,7 +64,9 @@ const SCHEMA = {
     maps_query: { type: 'string', description: 'Best Google Maps search text, e.g. official Japanese name + city' },
     note: { type: 'string', description: 'Short notes in Cantonese-style Traditional Chinese: what to eat/do, prices, opening hours, booking tips, from the post' },
     confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-    reason: { type: 'string', description: 'One line in Traditional Chinese on how the place was identified, mentioning uncertainty' },
+    reason: { type: 'string', description: 'One line in Traditional Chinese on how the place was identified and what the web search confirmed or contradicted' },
+    verified: { type: 'string', description: 'Traditional Chinese: what was checked online (official name, branch address, current prices/hours, still open?) and any differences from the post' },
+    sources: { type: 'array', items: { type: 'string' }, description: 'Up to 3 URLs actually used from web search (official site, Tabelog, Google, news)' },
   },
 };
 
@@ -76,17 +78,22 @@ URL: ${url}
 ${page.text ? `Public page content:\n${page.text}` : `The page could not be read (status ${page.status ?? 'error'}).`}
 ${userText ? `Text the user pasted from the post:\n${userText}` : ''}
 
-Identify the specific place the post features. If it is not named explicitly, you may use web search to identify it from the details; never guess a name you cannot support. Fill in every field. Notes should keep concrete facts from the post (prices, hours, must-try items, queues/booking).`;
+Identify the specific place the post features, then ALWAYS use web search to verify it before answering, even when the post names it:
+- the official name (Japanese) and the exact branch/address the post refers to,
+- current prices, opening hours, closing days and booking method (posts are often out of date),
+- whether it is still open (not closed or relocated).
+If the post does not name the place, use web search to identify it from the details; never guess a name you cannot support.
+In the notes, prefer the verified current facts and mention where they differ from the post. Fill in every field.`;
   const base = {
     model: 'claude-opus-5-5', max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
   };
   const messages = [{ role: 'user', content: prompt }];
   let res;
   try {
     for (let turn = 0; turn < 4; turn++) {
-      res = await client.beta.messages.create({ ...base, messages, tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 4 }] });
+      res = await client.beta.messages.create({ ...base, messages, tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6 }] });
       if (res.stop_reason !== 'pause_turn') break;
       messages.push({ role: 'assistant', content: res.content });
     }
