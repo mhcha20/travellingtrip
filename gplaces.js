@@ -66,8 +66,8 @@ async function details(id) {
   let order = null;
   try { order = await pickFood(photos); } catch (e) { console.error('food pick failed', e.message); }
   const food = order ? order.map(i => photos[i]) : [];
-  const rest = photos.filter(ph => !food.includes(ph));
-  const chosen = [...food, ...rest].slice(0, 5);
+  // Only food shots when Claude found some; otherwise (no key / failure / none found) show what Google has.
+  const chosen = (food.length ? food : photos).slice(0, 5);
   const v = { rating: p.rating ?? null, ratings: p.userRatingCount ?? 0, mapsUri: p.googleMapsUri || null, photos: chosen, foodCount: Math.min(food.length, 5) };
   cache.set(id, { t: Date.now(), v });
   return v;
