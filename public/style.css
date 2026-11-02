@@ -174,3 +174,11 @@ a.btn.primary{color:#fff}
 .pd-strip{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}
 .pd-strip img{flex:none;width:100%;max-height:82vh;object-fit:contain;scroll-snap-align:center;margin:0;border-radius:0}
 .photo-dialog .rate{color:#ccc;text-align:center}
+/* google places */
+.gsearch{display:flex;gap:8px;align-items:flex-end}.gsearch label{flex:1}
+.gpick{display:block;width:100%;text-align:left;margin:4px 0;border-radius:10px}
+.gpick small{display:block;color:var(--muted);font-size:12px}
+.glinked{margin:0;font-size:13px;color:var(--ok)}
+.grating{margin:4px 0 0;font-size:13px}.grating small{color:var(--muted)}
+.gattr{margin:0 0 6px;font-size:11px;color:var(--muted)}
+.card .grating b{font:700 1rem var(--sans)}.card .grating small{display:inline}

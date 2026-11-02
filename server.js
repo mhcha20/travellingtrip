@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 const receipt = require('./receipt');
+const gplaces = require('./gplaces');
 
 const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.TRIP_PASSWORD || '';
@@ -79,7 +80,7 @@ const TABLES = { expenses: 'expenses', journal: 'journal', places: 'places' };
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after "api"
   const [kind, id] = parts;
-  if (req.method === 'GET' && kind === 'config') return send(res, 200, { googleClientId: GOOGLE_CLIENT_ID || null });
+  if (req.method === 'GET' && kind === 'config') return send(res, 200, { googleClientId: GOOGLE_CLIENT_ID || null, places: gplaces.enabled() });
   if (req.method === 'POST' && kind === 'login') {
     if (!GOOGLE_CLIENT_ID) return send(res, 400, { error: 'google login not configured' });
     const { credential } = await readBody(req);
@@ -117,6 +118,17 @@ async function api(req, res, url) {
       if (Array.isArray(r.rows[0]?.photos) && r.rows[0].photos.length) await pool.query('DELETE FROM photos WHERE id = ANY($1)', [r.rows[0].photos]);
       return send(res, 200, { ok: true });
     }
+  }
+  if (kind === 'gplace') {
+    if (!gplaces.enabled()) return send(res, 503, { error: 'disabled' });
+    try {
+      if (req.method === 'GET' && id === 'search') return send(res, 200, { results: await gplaces.search(String(url.searchParams.get('q') || '').slice(0, 200)) });
+      if (req.method === 'GET' && id === 'photo') {
+        const uri = await gplaces.photoUri(String(url.searchParams.get('name') || ''), Number(url.searchParams.get('w')) || 800);
+        res.writeHead(302, { Location: uri, 'Cache-Control': 'private, max-age=3000' }); return res.end();
+      }
+      if (req.method === 'GET' && id) return send(res, 200, await gplaces.details(id));
+    } catch (e) { console.error('gplace', e.message); return send(res, 502, { error: 'google lookup failed' }); }
   }
   if (kind === 'photos') {
     if (req.method === 'POST' && !id) {

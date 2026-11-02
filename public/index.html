@@ -112,7 +112,10 @@
       <h2 id="placeFormTitle">新增想去地點</h2>
       <form id="placeForm" class="grid">
         <label class="wide">來源連結（Threads / IG / 小紅書…）<input name="url" type="url" placeholder="https://"></label>
-        <label>名稱<input name="name" required placeholder="例：二條市場"></label>
+        <div class="wide gsearch"><label>名稱<input name="name" required placeholder="例：二條市場"></label>
+          <button type="button" id="gSearchBtn" class="btn" hidden>🔎 喺 Google 搵</button></div>
+        <div class="wide" id="gResults"></div>
+        <input type="hidden" name="gplaceId">
         <label>地區<select name="area"></select></label>
         <label>類型<select name="kind"></select></label>
         <label>狀態<select name="status"><option value="want">想去</option><option value="done">去咗</option></select></label>

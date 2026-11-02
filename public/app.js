@@ -178,6 +178,8 @@ const KINDS = { food: '🍜 美食', sight: '🏔 景點', shop: '🛍 購物', 
 const AREA_CENTER = { 登別: [42.4966, 141.1440], 札幌: [43.0618, 141.3545], 小樽: [43.1907, 140.9947], 洞爺湖: [42.5650, 140.8190], 新千歲機場: [42.7752, 141.6923], 大阪: [34.6937, 135.5023], 京都: [35.0116, 135.7681], 神戶: [34.6901, 135.1955], 奈良: [34.6851, 135.8048] };
 $('#placeForm [name=area]').innerHTML = AREAS.map(x => `<option>${x}</option>`).join('');
 $('#placeForm [name=kind]').innerHTML = Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+let gEnabled = false; const gCache = new Map();
+fetch('/api/config').then(r => r.json()).then(c => { gEnabled = !!c.places; $('#gSearchBtn').hidden = !gEnabled; if (gEnabled) renderPlaces(); }).catch(() => {});
 let formPhotos = []; // [{id} existing | {data} new]
 const MAX_PHOTOS = 5;
 let placeEditId = null, placeFilter = '', kindFilter = '', map = null, markers = null, myPos = null, meMarker = null;
@@ -186,7 +188,7 @@ const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[
 const fmtDist = m => m < 1000 ? `${Math.round(m / 10) * 10} 米` : m < 100e3 ? `${(m / 1000).toFixed(1)} 公里` : `${Math.round(m / 1000)} 公里`;
 const walk = m => m <= 2500 ? `步行約 ${Math.max(1, Math.round(m / 80))} 分鐘` : m <= 30e3 ? '建議搭車' : '';
 const placeLL = p => p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area] || null;
-const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`));
+const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`)) + (p.gplaceId ? '&query_place_id=' + encodeURIComponent(p.gplaceId) : '');
 const sourceLabel = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('threads') ? 'Threads' : h.includes('instagram') ? 'Instagram' : h.includes('xiaohongshu') || h.includes('xhslink') ? '小紅書' : h.includes('facebook') ? 'Facebook' : h.includes('youtube') || h.includes('youtu.be') ? 'YouTube' : h; } catch { return '連結'; } };
 const safeUrl = u => /^https?:\/\//i.test(u || '') ? u : '';
 function ensureMap() {
@@ -209,13 +211,15 @@ function renderPlaces() {
       <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
     <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
     ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
+    ${p.gplaceId && gEnabled ? `<div class="gbox" data-g="${esc(p.gplaceId)}"><p class="rate">載入 Google 食物相…</p></div>` : ''}
     ${(p.photos || []).length ? `<div class="gallery" data-id="${p.id}">${p.photos.map((ph, i) => `<img loading="lazy" src="/api/photos/${esc(ph)}" data-i="${i}" alt="">`).join('')}</div>` : ''}
     ${p.note ? `<p class="j-text">${esc(p.note)}</p>` : ''}
     <div class="actions"><a class="btn primary" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google Maps</a>
-      <a class="btn" href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(p.query || p.name + ' ' + p.area)}" target="_blank" rel="noopener">🔍 Google 圖片</a>
+      <a class="btn" href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent((p.query || p.name + ' ' + p.area) + (['food', 'stay'].includes(p.kind) ? ' 料理' : ''))}" target="_blank" rel="noopener">🔍 ${['food', 'stay'].includes(p.kind) ? '食物相' : 'Google 圖片'}</a>
       ${safeUrl(p.url) ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">🔗 ${esc(sourceLabel(p.url))}</a>` : ''}
       <button data-act="toggle" data-id="${p.id}">${p.status === 'done' ? '改返想去' : '標記去咗'}</button></div></div>`).join('')
     || '<p class="rate">未有地點。見到想去嘅地方，貼條連結落嚟啦！</p>';
+  document.querySelectorAll('.gbox[data-g]').forEach(loadGBox);
   ensureMap();
   if (!map) return;
   markers.clearLayers();
@@ -252,7 +256,7 @@ $('#nearBtn').addEventListener('click', () => {
 });
 $('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
 $('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
-function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
+function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeForm').gplaceId.value = ''; $('#gResults').innerHTML = ''; $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
 $('#placeCancel').addEventListener('click', resetPlaceForm);
 $('#placeList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -261,7 +265,8 @@ $('#placeList').addEventListener('click', e => {
   if (b.dataset.act === 'del' && confirm('刪除「' + p.name + '」？')) { places = places.filter(x => x !== p); sync(api('DELETE', 'places/' + p.id)); renderPlaces(); }
   if (b.dataset.act === 'edit') {
     placeEditId = p.id; const f = $('#placeForm');
-    for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note']) f.elements[k].value = p[k] ?? '';
+    for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note', 'gplaceId']) f.elements[k].value = p[k] ?? '';
+    $('#gResults').innerHTML = p.gplaceId ? '<p class="glinked">✅ 已連結 Google 地點</p>' : '';
     formPhotos = (p.photos || []).map(id => ({ id })); renderFormPhotos();
     $('#placeFormTitle').textContent = '編輯地點'; $('#placeCancel').hidden = false; f.scrollIntoView({ behavior: 'smooth' });
   }
@@ -278,11 +283,12 @@ $('#placePhotoInput').addEventListener('change', async ev => {
 });
 $('#placeList').addEventListener('click', e => {
   const img = e.target.closest('.gallery img'); if (!img) return;
-  const p = places.find(x => x.id === img.parentElement.dataset.id); if (!p) return;
-  $('#pdStrip').innerHTML = p.photos.map(ph => `<img src="/api/photos/${esc(ph)}" alt="">`).join('');
-  $('#pdCount').textContent = `${p.name} · ${p.photos.length} 張（左右掃）`;
+  const imgs = [...img.parentElement.querySelectorAll('img')];
+  const card = img.closest('.place');
+  $('#pdStrip').innerHTML = imgs.map(x => `<img src="${esc(x.dataset.full || x.src)}" alt="">`).join('');
+  $('#pdCount').textContent = `${card?.querySelector('h3')?.textContent || ''} · ${imgs.length} 張（左右掃）`;
   $('#photoDialog').showModal();
-  const strip = $('#pdStrip'); strip.scrollLeft = strip.clientWidth * +img.dataset.i;
+  const strip = $('#pdStrip'); strip.scrollLeft = strip.clientWidth * imgs.indexOf(img);
 });
 $('#placeForm').addEventListener('submit', async ev => {
   ev.preventDefault(); const f = ev.target; const btn = f.querySelector('button.primary');
@@ -295,10 +301,38 @@ $('#placeForm').addEventListener('submit', async ev => {
   finally { btn.disabled = false; btn.textContent = '儲存'; }
   const prev = placeEditId ? (places.find(x => x.id === placeEditId)?.photos || []) : [];
   prev.filter(id => !photoIds.includes(id)).forEach(id => sync(api('DELETE', 'photos/' + id)));
-  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds };
+  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds, gplaceId: f.gplaceId.value || null };
   let p;
   if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
   sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();
+});
+
+// Google Places: food photos + rating
+async function loadGBox(box) {
+  const id = box.dataset.g; box.removeAttribute('data-g');
+  try {
+    if (!gCache.has(id)) gCache.set(id, fetch('/api/gplace/' + encodeURIComponent(id)).then(r => { if (!r.ok) throw 0; return r.json(); }));
+    const d = await gCache.get(id);
+    const by = [...new Set(d.photos.map(p => p.by).filter(Boolean))].slice(0, 3).join('、');
+    box.innerHTML = `${d.rating ? `<p class="grating">⭐ <b>${d.rating.toFixed(1)}</b> <small>(${d.ratings.toLocaleString()} 個 Google 評分)</small>${d.foodCount ? ` · 🍜 ${d.foodCount} 張食物相` : ''}</p>` : ''}
+      ${d.photos.length ? `<div class="gallery">${d.photos.map(p => `<img loading="lazy" src="/api/gplace/photo?w=600&name=${encodeURIComponent(p.name)}" data-full="/api/gplace/photo?w=1400&name=${encodeURIComponent(p.name)}" alt="">`).join('')}</div>
+      <p class="gattr">相片來自 Google Maps${by ? '：' + esc(by) : ''}</p>` : '<p class="rate">Google 未有相片</p>'}`;
+  } catch { gCache.delete(id); box.innerHTML = '<p class="rate">暫時載入唔到 Google 相片</p>'; }
+}
+$('#gSearchBtn').addEventListener('click', async () => {
+  const f = $('#placeForm'), q = `${f.name.value.trim()} ${f.area.value}`.trim();
+  if (!f.name.value.trim()) { f.name.focus(); return; }
+  $('#gResults').innerHTML = '<p class="rate">搜尋中…</p>';
+  try {
+    const r = await fetch('/api/gplace/search?q=' + encodeURIComponent(q)).then(r => r.json());
+    $('#gResults').innerHTML = (r.results || []).map((x, i) => `<button type="button" class="gpick" data-i="${i}"><b>${esc(x.name)}</b>${x.rating ? ` ⭐${x.rating}` : ''}<small>${esc(x.type)} · ${esc(x.address || '')}</small></button>`).join('') || '<p class="rate">搵唔到，試吓用日文名或者加地區</p>';
+    $('#gResults').onclick = e => {
+      const b = e.target.closest('.gpick'); if (!b) return; const x = r.results[+b.dataset.i];
+      f.gplaceId.value = x.id; f.lat.value = x.lat; f.lng.value = x.lng; f.query.value = x.name;
+      if (!f.name.value.trim()) f.name.value = x.name;
+      $('#gResults').innerHTML = `<p class="glinked">✅ 已連結 Google：<b>${esc(x.name)}</b>（位置同食物相會自動用 Google 嘅）</p>`;
+    };
+  } catch { $('#gResults').innerHTML = '<p class="rate">搜尋失敗</p>'; }
 });
 
 // journal
