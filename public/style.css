@@ -194,3 +194,8 @@ button:disabled{opacity:.65;cursor:progress}
 .j-text{overflow-wrap:anywhere}
 a.src{display:inline-block;margin:2px 2px;padding:1px 10px;border-radius:99px;font-size:12px;text-decoration:none;
   background:var(--accent-soft);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);white-space:nowrap}
+.dup-warn{margin:0;padding:8px 12px;border-radius:10px;font-size:13px;background:color-mix(in srgb,var(--warm) 14%,transparent);color:var(--text)}
+.dup-link{border:0;background:none;padding:0 2px;color:var(--warm);font-weight:700;text-decoration:underline;font-size:13px}
+.dup-warn small{color:var(--muted)}
+.dup-flash{animation:dupflash 2.2s ease-out}
+@keyframes dupflash{0%,40%{box-shadow:0 0 0 4px var(--warm)}100%{box-shadow:var(--shadow)}}

@@ -188,6 +188,36 @@ const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[
 const fmtDist = m => m < 1000 ? `${Math.round(m / 10) * 10} 米` : m < 100e3 ? `${(m / 1000).toFixed(1)} 公里` : `${Math.round(m / 1000)} 公里`;
 const walk = m => m <= 2500 ? `步行約 ${Math.max(1, Math.round(m / 80))} 分鐘` : m <= 30e3 ? '建議搭車' : '';
 const placeLL = p => p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area] || null;
+// Duplicate detection: same Google listing, same source link, very close + similar name, or same name.
+const normName = s => String(s || '').toLowerCase().normalize('NFKC').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s・·,，、。.!！?？'"「」『』\-_/]+/g, '');
+const normUrl = u => { try { const x = new URL(u); return (x.hostname.replace(/^www\./, '') + x.pathname.replace(/\/+$/, '')).toLowerCase(); } catch { return ''; } };
+const namesOf = p => { const n = String(p.name || ''); const inner = (n.match(/[（(]([^）)]+)[）)]/g) || []).map(s => s.slice(1, -1)); return [n, ...inner, p.query].map(normName).filter(s => s.length >= 2); };
+const COMMON_NAMES = new Set(['札幌', '大阪', '京都', '神戶', '神戸', '小樽', '登別', '函館', '北海道', '市場', '拉麵', 'ラーメン', '壽司', '寿司', '食堂', '酒店', '飯店', 'ホテル', '本店', '餐廳', 'カフェ', 'cafe', '居酒屋', '燒肉', '焼肉', '溫泉', '温泉'].map(normName));
+const minLen = s => /[\u3040-\u30ff\u4e00-\u9fff]/.test(s) ? 2 : 4; // 2 CJK characters are already distinctive
+const similar = (a, b) => namesOf(a).some(x => namesOf(b).some(y => x === y || (Math.min(x.length, y.length) >= minLen(x.length < y.length ? x : y) && !COMMON_NAMES.has(x.length < y.length ? x : y) && (x.includes(y) || y.includes(x)))));
+function findDuplicates(o, excludeId) {
+  return places.filter(p => p.id !== excludeId).map(p => {
+    if (o.gplaceId && p.gplaceId === o.gplaceId) return { p, why: '同一間 Google 店舖' };
+    if (o.url && p.url && normUrl(o.url) === normUrl(p.url)) return { p, why: '同一條來源連結' };
+    const sim = similar(o, p);
+    if (sim && o.lat && o.lng && p.lat && p.lng && distM([o.lat, o.lng], [p.lat, p.lng]) < 50) return { p, why: '位置相同、店名相似' };
+    if (sim) return { p, why: '店名相似' };
+    return null;
+  }).filter(Boolean);
+}
+function flashCard(id) {
+  placeFilter = ''; kindFilter = ''; renderPlaces();
+  const el = [...document.querySelectorAll('#placeList .place')].find(c => c.querySelector(`[data-id="${CSS.escape(id)}"]`));
+  if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('dup-flash'); void el.offsetWidth; el.classList.add('dup-flash');
+}
+function dupWarning(o, excludeId) {
+  const d = findDuplicates(o, excludeId);
+  const box = $('#dupWarn');
+  if (!d.length) { box.hidden = true; return d; }
+  box.hidden = false;
+  box.innerHTML = '⚠️ 呢間好似已經加咗：' + d.map(x => `<button type="button" class="dup-link" data-id="${esc(x.p.id)}">${esc(x.p.name)}</button><small>（${x.why}）</small>`).join('、');
+  return d;
+}
 const mapsUrl = p => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.lat && p.lng && !p.query ? `${p.lat},${p.lng}` : (p.query || `${p.name} ${p.area}`)) + (p.gplaceId ? '&query_place_id=' + encodeURIComponent(p.gplaceId) : '');
 const sourceLabel = u => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('threads') ? 'Threads' : h.includes('instagram') ? 'Instagram' : h.includes('xiaohongshu') || h.includes('xhslink') ? '小紅書' : h.includes('facebook') ? 'Facebook' : h.includes('youtube') || h.includes('youtu.be') ? 'YouTube' : h; } catch { return '連結'; } };
 const SITE_NAMES = { 'tabelog.com': '食べログ', 'hitosara.com': 'ヒトサラ', 'retty.me': 'Retty', 'autoreserve.com': 'AutoReserve', 'hotpepper.jp': 'Hot Pepper', 'travel.rakuten.co.jp': '楽天トラベル', 'jalan.net': 'じゃらん', 'google.com': 'Google', 'instagram.com': 'Instagram', 'threads.com': 'Threads', 'threads.net': 'Threads', 'tripadvisor.com': 'Tripadvisor', 'trip.com': 'Trip.com' };
@@ -261,7 +291,7 @@ $('#nearBtn').addEventListener('click', () => {
 });
 $('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
 $('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
-function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeForm').gplaceId.value = ''; $('#gResults').innerHTML = ''; $('#importStatus').hidden = true; $('#importText').value = ''; $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
+function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeForm').gplaceId.value = ''; $('#gResults').innerHTML = ''; $('#importStatus').hidden = true; $('#importText').value = ''; $('#dupWarn').hidden = true; $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
 $('#placeCancel').addEventListener('click', resetPlaceForm);
 $('#placeList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -295,8 +325,19 @@ $('#placeList').addEventListener('click', e => {
   $('#photoDialog').showModal();
   const strip = $('#pdStrip'); strip.scrollLeft = strip.clientWidth * imgs.indexOf(img);
 });
+function formValues() {
+  const f = $('#placeForm');
+  return { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), gplaceId: f.gplaceId.value || null };
+}
+$('#placeForm').name.addEventListener('change', () => dupWarning(formValues(), placeEditId));
+$('#dupWarn').addEventListener('click', e => { const b = e.target.closest('.dup-link'); if (b) flashCard(b.dataset.id); });
 $('#placeForm').addEventListener('submit', async ev => {
   ev.preventDefault(); const f = ev.target; const btn = $('#placeSave');
+  const dups = findDuplicates(formValues(), placeEditId);
+  if (dups.length && !placeEditId) {
+    const list = dups.map(x => `・${x.p.name}（${x.why}）`).join('\n');
+    if (!confirm(`呢間好似已經喺清單入面：\n${list}\n\n仲要繼續加？`)) { flashCard(dups[0].p.id); return; }
+  }
   let photoIds;
   try {
     btn.disabled = true; btn.textContent = formPhotos.some(x => x.data) ? '上載相片中…' : '儲存中…';
@@ -317,7 +358,7 @@ function showCandidates(cands, f) {
   $('#gResults').innerHTML = cands.length ? '<p class="rate">Google 上面最似嘅：（已自動揀第一個，唔啱可以改）</p>' + cands.map((x, i) => `<button type="button" class="gpick ${i === 0 ? 'on' : ''}" data-i="${i}"><b>${esc(x.name)}</b>${x.rating ? ` ⭐${x.rating}` : ''}<small>${esc(x.type)} · ${esc(x.address || '')}</small></button>`).join('') : '';
   const pick = x => { f.gplaceId.value = x.id; f.lat.value = x.lat; f.lng.value = x.lng; f.query.value = x.name; };
   if (cands[0]) pick(cands[0]);
-  $('#gResults').onclick = e => { const b = e.target.closest('.gpick'); if (!b) return; pick(cands[+b.dataset.i]); $('#gResults').querySelectorAll('.gpick').forEach(x => x.classList.toggle('on', x === b)); };
+  $('#gResults').onclick = e => { const b = e.target.closest('.gpick'); if (!b) return; pick(cands[+b.dataset.i]); $('#gResults').querySelectorAll('.gpick').forEach(x => x.classList.toggle('on', x === b)); dupWarning(formValues(), placeEditId); };
 }
 $('#importBtn').addEventListener('click', async () => {
   const f = $('#placeForm'), st = $('#importStatus'), btn = $('#importBtn');
@@ -355,6 +396,7 @@ $('#importBtn').addEventListener('click', async () => {
     f.note.value = [x.note, x.verified && '🔎 網上核實：' + x.verified, src.length && '來源：\n' + src.join('\n')].filter(Boolean).join('\n\n');
     f.gplaceId.value = ''; f.lat.value = ''; f.lng.value = '';
     showCandidates(d.candidates || [], f);
+    dupWarning(formValues(), placeEditId);
     const conf = { high: '✅ 好肯定', medium: '🟡 幾肯定', low: '⚠️ 唔太肯定' }[x.confidence] || '';
     st.textContent = `${conf}：${x.reason}${d.pageOk ? '' : '（帖文讀唔到，用咗你貼嘅文字）'} — 請核對後撳「儲存」。`;
     f.elements.name.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -388,6 +430,7 @@ $('#gSearchBtn').addEventListener('click', async () => {
       const b = e.target.closest('.gpick'); if (!b) return; const x = r.results[+b.dataset.i];
       f.gplaceId.value = x.id; f.lat.value = x.lat; f.lng.value = x.lng; f.query.value = x.name;
       if (!f.name.value.trim()) f.name.value = x.name;
+      dupWarning(formValues(), placeEditId);
       $('#gResults').innerHTML = `<p class="glinked">✅ 已連結 Google：<b>${esc(x.name)}</b>（位置同食物相會自動用 Google 嘅）</p>`;
     };
   } catch { $('#gResults').innerHTML = '<p class="rate">搜尋失敗</p>'; }
