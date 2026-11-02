@@ -1,5 +1,6 @@
 // Google Places (New) lookups + picking food photos with Claude.
 // Photos are fetched live (not stored) and shown with Google's required attribution.
+const crypto = require('crypto');
 const AnthropicMod = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicMod.default || AnthropicMod;
 
@@ -32,15 +33,21 @@ async function photoUri(name, w = 800) {
 }
 
 let claude;
-async function classifyBatch(photos) {
-  const imgs = await Promise.all(photos.map(async p => {
+// Downloads a small copy of each photo; the same picture often appears under different names
+// in different language listings, so byte-identical copies are dropped here.
+async function fetchThumbs(photos, seenHashes) {
+  const out = await Promise.all(photos.map(async p => {
     try {
       const r = await fetch(await photoUri(p.name, 400));
-      return { mime: r.headers.get('content-type') || 'image/jpeg', b64: Buffer.from(await r.arrayBuffer()).toString('base64') };
+      const buf = Buffer.from(await r.arrayBuffer());
+      return { ...p, mime: r.headers.get('content-type') || 'image/jpeg', b64: buf.toString('base64'), hash: crypto.createHash('sha1').update(buf).digest('hex') };
     } catch { return null; }
   }));
+  return out.filter(p => p && /^image\/(jpeg|png|webp|gif)$/.test(p.mime) && !seenHashes.has(p.hash) && seenHashes.add(p.hash));
+}
+async function classifyBatch(photos) {
   const content = [];
-  imgs.forEach((im, i) => { if (im && /^image\/(jpeg|png|webp|gif)$/.test(im.mime)) content.push({ type: 'text', text: `Image ${i}:` }, { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.b64 } }); });
+  photos.forEach((im, i) => content.push({ type: 'text', text: `Image ${i}:` }, { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.b64 } }));
   if (!content.length) return [];
   content.push({ type: 'text', text: 'These are Google Maps photos of a restaurant/hotel/shop. List the indices of images that mainly show food or drinks (dishes, bowls, buffet spreads, desserts), best-looking first. Exclude menus, storefronts, rooms, people, receipts, and near-duplicates of an image already listed.' });
   claude ??= new Anthropic();
@@ -52,11 +59,12 @@ async function classifyBatch(photos) {
   });
   if (res.stop_reason === 'refusal') return [];
   const t = res.content.find(b => b.type === 'text');
-  return t ? [...new Set(JSON.parse(t.text).food)].filter(i => Number.isInteger(i) && i >= 0 && i < photos.length).map(i => photos[i]) : [];
+  return t ? [...new Set(JSON.parse(t.text).food)].filter(i => Number.isInteger(i) && i >= 0 && i < photos.length).map(i => ({ name: photos[i].name, by: photos[i].by })) : [];
 }
 // Returns food photos in preference order, or null when classification is unavailable.
 async function pickFood(photos) {
-  if (!process.env.ANTHROPIC_API_KEY || photos.length < 2) return null;
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (!photos.length) return [];
   const batches = []; for (let i = 0; i < photos.length; i += 15) batches.push(photos.slice(i, i + 15));
   const results = await Promise.all(batches.map(b => classifyBatch(b).catch(e => { console.error('classify', e.message); return []; })));
   return results.flat();
@@ -100,9 +108,9 @@ async function details(id) {
   // Each language listing returns a different set of up to 10 photos, so widen until we have enough food shots.
   const LANG_ROUNDS = [['zh-TW', 'ja', 'en'], ['ko', 'zh-CN', 'th'], ['fr', 'es', 'de'], ['it', 'pt', 'vi']];
   const WANT = 10, MIN = 8;
-  const seen = new Set(), pool = [];
+  const seen = new Set(), hashes = new Set(), pool = [];
   const add = src => { for (const ph of toPhotos(src?.photos)) { const k = ph.name.split('/photos/')[1]; if (!seen.has(k)) { seen.add(k); pool.push(ph); } } };
-  let base = null, related = [], food = [], canClassify = true;
+  let base = null, related = [], food = [], canClassify = true, unique = 0;
   for (let round = 0; round < LANG_ROUNDS.length; round++) {
     const res = await Promise.all(LANG_ROUNDS[round].map(l => placeOne(id, l, mask).catch(() => null)));
     if (round === 0) {
@@ -111,7 +119,8 @@ async function details(id) {
       related.forEach(add);
     }
     const before = pool.length; res.forEach(add);
-    const fresh = round === 0 ? pool : pool.slice(before);
+    const fresh = await fetchThumbs(round === 0 ? pool : pool.slice(before), hashes);
+    unique += fresh.length;
     if (!fresh.length) continue;
     let picked = null;
     try { picked = await pickFood(fresh); } catch (e) { console.error('food pick failed', e.message); }
@@ -122,7 +131,7 @@ async function details(id) {
   }
   // Only food shots when Claude found some; otherwise show what Google has.
   const chosen = (canClassify && food.length ? food : pool).slice(0, WANT);
-  const v = { rating: base.rating ?? null, ratings: base.userRatingCount ?? 0, mapsUri: base.googleMapsUri || null, photos: chosen, foodCount: canClassify ? Math.min(food.length, WANT) : 0, scanned: pool.length, related: related.length };
+  const v = { rating: base.rating ?? null, ratings: base.userRatingCount ?? 0, mapsUri: base.googleMapsUri || null, photos: chosen, foodCount: canClassify ? Math.min(food.length, WANT) : 0, scanned: pool.length, unique, related: related.length };
   cache.set(id, { t: Date.now(), v });
   return v;
 }
