@@ -4,14 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>北海道・大阪 2027 旅行記錄</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="hero">
-  <h1>北海道・大阪 10天冬日之旅</h1>
-  <p>2027/02/16 – 02/25 ｜ 陳 敏熙 ＆ 胡 耀鴻</p>
-  <p id="countdown" class="countdown"></p>
-  <p id="who" class="who" hidden><span id="whoEmail"></span> <button id="logout" type="button">登出</button></p>
+  <canvas class="snow" aria-hidden="true"></canvas>
+  <svg class="mountains" viewBox="0 0 1200 160" preserveAspectRatio="none" aria-hidden="true">
+    <path class="m-far" d="M0 120 L120 70 L210 100 L330 40 L430 95 L560 55 L680 105 L800 50 L930 90 L1050 60 L1200 100 V160 H0Z"/>
+    <path class="m-snow" d="M330 40 L300 58 L318 55 L332 64 L345 52 L360 57Z M800 50 L772 66 L790 63 L803 71 L816 61 L830 66Z M560 55 L540 67 L556 64 L566 70 L578 63Z"/>
+    <path class="m-near" d="M0 160 V130 L90 105 L190 128 L300 98 L420 132 L540 110 L660 136 L780 112 L900 134 L1020 108 L1120 128 L1200 118 V160Z"/>
+  </svg>
+  <div class="hero-inner">
+    <span class="hanko" aria-hidden="true">北<br>国</span>
+    <p class="eyebrow">HOKKAIDO · OSAKA · WINTER 2027</p>
+    <h1>北海道・大阪<span>十日雪國之旅</span></h1>
+    <p class="sub">2027/02/16 – 02/25 ｜ 陳 敏熙 ＆ 胡 耀鴻</p>
+    <p id="countdown" class="countdown"></p>
+    <p id="who" class="who" hidden><span id="whoEmail"></span> <button id="logout" type="button">登出</button></p>
+  </div>
 </header>
 <nav class="tabs" id="tabs">
   <button data-tab="expenses" class="active">💴 消費</button>
@@ -86,7 +99,8 @@
 </main>
 <dialog id="receiptDialog"><form method="dialog"><div class="row"><b id="rdTitle"></b><button>關閉</button></div>
   <ul id="rdItems" class="items"></ul><img id="rdImg" alt="收據"></form></dialog>
-<footer>資料儲存於雲端資料庫，兩個人用同一網址即時共用。可用「備份 JSON」自行匯出。</footer>
+<footer><span class="foot-flake">❄</span> 資料儲存於雲端資料庫，兩個人用同一網址即時共用。可用「備份 JSON」自行匯出。</footer>
+<script src="snow.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

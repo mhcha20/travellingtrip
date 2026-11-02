@@ -4,18 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>登入 · 北海道・大阪 2027</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@500;700;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
-<body>
+<body class="login-page">
+<canvas class="snow" aria-hidden="true"></canvas>
 <main>
   <div class="panel login">
-    <h2>北海道・大阪 2027 旅行記錄</h2>
+    <span class="hanko" aria-hidden="true">北<br>国</span>
+    <p class="eyebrow">HOKKAIDO · OSAKA · WINTER 2027</p>
+    <h2>北海道・大阪<br>十日雪國之旅</h2>
     <p class="rate">請用 Google（Gmail）帳戶登入。只有已授權嘅帳戶先可以睇到內容。</p>
     <div id="gbtn"></div>
     <p class="err" id="err"></p>
   </div>
 </main>
+<script src="snow.js"></script>
 <script>
 (async () => {
   const err = document.getElementById('err');

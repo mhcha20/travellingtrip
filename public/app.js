@@ -41,7 +41,7 @@ $('#tabs').addEventListener('click', e => {
 (() => {
   const d = Math.ceil((new Date(TRIP.start + 'T00:00:00') - new Date()) / 864e5);
   const end = Math.ceil((new Date(TRIP.end + 'T23:59:59') - new Date()) / 864e5);
-  $('#countdown').textContent = d > 0 ? `距離出發還有 ${d} 日` : end >= 0 ? '旅程進行中 ✈️' : '旅程已完成，留低美好回憶 ❤️';
+  $('#countdown').innerHTML = d > 0 ? `距離雪國還有 <b>${d}</b> 日` : end >= 0 ? '❄ 旅程進行中' : '旅程已完成，留低雪國回憶';
 })();
 
 // forms setup
@@ -198,7 +198,9 @@ $('#jForm').addEventListener('submit', async ev => {
 });
 
 // static sections
-$('#itineraryList').innerHTML = ITINERARY.map(d => `<div class="card day"><h3>${esc(d.day)} ｜ ${esc(d.date)} <span class="city">${esc(d.city)}</span></h3>
+const region = d => { const n = parseInt(d.day.replace(/\D/g, ''), 10); return n <= 4 ? 'hokkaido' : n === 5 ? 'transit' : 'osaka'; };
+const regionTag = { hokkaido: '❄ 北海道', transit: '✈ 北海道 → 大阪', osaka: '🏮 大阪・關西' };
+$('#itineraryList').innerHTML = ITINERARY.map(d => `<div class="card day ${region(d)}"><span class="region">${regionTag[region(d)]}</span><h3>${esc(d.day)} ｜ ${esc(d.date)} <span class="city">${esc(d.city)}</span></h3>
   ${d.events.map(e => `<div class="ev"><time>${esc(e.time)}</time><div>${esc(e.what)}<small>📍${esc(e.where)}${e.note ? ' ｜ ' + esc(e.note) : ''}</small></div></div>`).join('')}</div>`).join('');
 $('#bookingList').innerHTML = BOOKINGS.map(b => `<div class="card"><b>${esc(b.name)}</b> <span class="tag">${esc(b.cat)}</span>
   <div>🗓 ${esc(b.dates)}</div><div>🔖 ${esc(b.id)} ｜ ${esc(b.platform)}</div><div>💳 ${esc(b.amount)}</div>

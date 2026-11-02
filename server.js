@@ -12,7 +12,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const ALLOWED = (process.env.ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SESSION_DAYS = 30;
-const PUBLIC_FILES = new Set(['/login.html', '/style.css']);
+const PUBLIC_FILES = new Set(['/login.html', '/style.css', '/snow.js']);
 const PUBLIC = path.join(__dirname, 'public');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
