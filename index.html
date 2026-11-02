@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>北海道・大阪 2027 旅行記錄</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <h1>北海道・大阪 10天冬日之旅</h1>
+  <p>2027/02/16 – 02/25 ｜ 陳 敏熙 ＆ 胡 耀鴻</p>
+  <p id="countdown" class="countdown"></p>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="expenses" class="active">💴 消費</button>
+  <button data-tab="journal">📝 旅行日記</button>
+  <button data-tab="itinerary">🗓 行程</button>
+  <button data-tab="bookings">🎫 預訂</button>
+  <button data-tab="tips">🎒 清單</button>
+</nav>
+<main>
+  <section id="tab-expenses" class="tab active">
+    <div class="cards" id="summary"></div>
+    <div class="panel">
+      <h2>新增消費</h2>
+      <form id="expForm" class="grid">
+        <label>日期<input type="date" name="date" required></label>
+        <label>類別<select name="category"></select></label>
+        <label>項目<input name="title" required placeholder="例：拉麵 / 地鐵"></label>
+        <label>金額<input type="number" name="amount" step="any" min="0" required></label>
+        <label>貨幣<select name="currency"><option>JPY</option><option>HKD</option></select></label>
+        <label>付款人<select name="payer"><option>敏熙</option><option>耀鴻</option><option>共同</option></select></label>
+        <label>狀態<select name="status"><option value="paid">已付</option><option value="pending">待付</option></select></label>
+        <label class="wide">備註<input name="note"></label>
+        <button type="submit" class="primary">新增</button>
+        <button type="button" id="cancelEdit" hidden>取消編輯</button>
+      </form>
+      <p class="rate">匯率 1 JPY = <input type="number" id="rate" step="0.0001" min="0" style="width:90px"> HKD <small>（可自行修改，用於換算總額）</small></p>
+    </div>
+    <div class="panel">
+      <h2>分類統計</h2>
+      <div id="byCat"></div>
+      <h2>每日統計</h2>
+      <div id="byDay"></div>
+    </div>
+    <div class="panel">
+      <div class="row"><h2>消費明細</h2>
+        <span class="actions">
+          <select id="filterCat"><option value="">全部類別</option></select>
+          <button id="exportCsv">匯出 CSV</button>
+          <button id="exportJson">備份 JSON</button>
+          <label class="btn">匯入<input type="file" id="importJson" accept=".json" hidden></label>
+        </span>
+      </div>
+      <div class="scroll"><table id="expTable"><thead><tr><th>日期</th><th>類別</th><th>項目</th><th>金額</th><th>付款人</th><th>狀態</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="tab-journal" class="tab">
+    <div class="panel">
+      <h2>新增旅行紀錄</h2>
+      <form id="jForm" class="grid">
+        <label>日期<input type="date" name="date" required></label>
+        <label>地點<input name="place" placeholder="例：登別地獄谷"></label>
+        <label>心情<select name="mood"><option>😀</option><option>😍</option><option>😌</option><option>🤤</option><option>😴</option><option>🥶</option><option>😫</option></select></label>
+        <label class="wide">內容<textarea name="text" rows="4" required placeholder="今日食咗啲乜、去咗邊、有咩難忘…"></textarea></label>
+        <label class="wide">相片（自動壓縮，儲存於本機）<input type="file" name="photo" accept="image/*" multiple></label>
+        <button class="primary" type="submit">儲存紀錄</button>
+      </form>
+    </div>
+    <div id="journalList"></div>
+  </section>
+
+  <section id="tab-itinerary" class="tab"><div id="itineraryList"></div></section>
+  <section id="tab-bookings" class="tab"><div id="bookingList"></div></section>
+  <section id="tab-tips" class="tab"><div id="tipsList"></div></section>
+</main>
+<footer>資料只儲存在此瀏覽器（localStorage）。換裝置前請先用「備份 JSON」匯出。</footer>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
