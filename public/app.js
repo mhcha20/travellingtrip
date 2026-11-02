@@ -173,7 +173,7 @@ function openReceipt(e) {
 }
 
 // places (想去)
-const AREAS = ['登別', '札幌', '小樽', '洞爺湖', '新千歲機場', '北海道其他', '大阪', '京都', '神戶', '奈良', '關西其他'];
+const AREAS = ['登別', '札幌', '小樽', '洞爺湖', '新千歲機場', '北海道其他', '大阪', '京都', '神戶', '奈良', '關西其他', '其他'];
 const KINDS = { food: '🍜 美食', sight: '🏔 景點', shop: '🛍 購物', stay: '🏨 住宿', other: '📌 其他' };
 const AREA_CENTER = { 登別: [42.4966, 141.1440], 札幌: [43.0618, 141.3545], 小樽: [43.1907, 140.9947], 洞爺湖: [42.5650, 140.8190], 新千歲機場: [42.7752, 141.6923], 大阪: [34.6937, 135.5023], 京都: [35.0116, 135.7681], 神戶: [34.6901, 135.1955], 奈良: [34.6851, 135.8048] };
 $('#placeForm [name=area]').innerHTML = AREAS.map(x => `<option>${x}</option>`).join('');
@@ -256,7 +256,7 @@ $('#nearBtn').addEventListener('click', () => {
 });
 $('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
 $('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
-function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeForm').gplaceId.value = ''; $('#gResults').innerHTML = ''; $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
+function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeForm').gplaceId.value = ''; $('#gResults').innerHTML = ''; $('#importStatus').hidden = true; $('#importText').value = ''; $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
 $('#placeCancel').addEventListener('click', resetPlaceForm);
 $('#placeList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -305,6 +305,38 @@ $('#placeForm').addEventListener('submit', async ev => {
   let p;
   if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
   sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();
+});
+
+// Paste a link → Claude fills in the rest
+function showCandidates(cands, f) {
+  $('#gResults').innerHTML = cands.length ? '<p class="rate">Google 上面最似嘅：（已自動揀第一個，唔啱可以改）</p>' + cands.map((x, i) => `<button type="button" class="gpick ${i === 0 ? 'on' : ''}" data-i="${i}"><b>${esc(x.name)}</b>${x.rating ? ` ⭐${x.rating}` : ''}<small>${esc(x.type)} · ${esc(x.address || '')}</small></button>`).join('') : '';
+  const pick = x => { f.gplaceId.value = x.id; f.lat.value = x.lat; f.lng.value = x.lng; f.query.value = x.name; };
+  if (cands[0]) pick(cands[0]);
+  $('#gResults').onclick = e => { const b = e.target.closest('.gpick'); if (!b) return; pick(cands[+b.dataset.i]); $('#gResults').querySelectorAll('.gpick').forEach(x => x.classList.toggle('on', x === b)); };
+}
+$('#importBtn').addEventListener('click', async () => {
+  const f = $('#placeForm'), st = $('#importStatus'), btn = $('#importBtn');
+  const link = f.url.value.trim(), text = $('#importText').value.trim();
+  if (!/^https?:\/\//.test(link)) { f.url.focus(); st.hidden = false; st.textContent = '請先貼條連結'; return; }
+  st.hidden = false; st.textContent = '⏳ 讀緊帖文同搵緊地點…（大約 10–40 秒）'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/linkimport', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: link, text }) });
+    if (r.status === 503) { st.textContent = '自動填寫未啟用（需要 Anthropic API key）'; return; }
+    if (!r.ok) throw 0;
+    const d = await r.json(), x = d.extracted;
+    if (!x) { st.textContent = '讀唔到呢條連結嘅內容。請打開「貼帖文文字」，貼上帖文文字再試。'; $('#importTextBox').open = true; return; }
+    if (!x.found) { st.textContent = `認唔到係邊個地方：${x.reason}。可以貼帖文文字再試，或者自己填。`; $('#importTextBox').open = true; return; }
+    f.name.value = x.name_local && x.name_local !== x.name ? `${x.name}（${x.name_local}）` : x.name;
+    if (AREAS.includes(x.area)) f.area.value = x.area;
+    if (KINDS[x.kind]) f.kind.value = x.kind;
+    f.query.value = x.maps_query || '';
+    f.note.value = x.note || '';
+    f.gplaceId.value = ''; f.lat.value = ''; f.lng.value = '';
+    showCandidates(d.candidates || [], f);
+    const conf = { high: '✅ 好肯定', medium: '🟡 幾肯定', low: '⚠️ 唔太肯定' }[x.confidence] || '';
+    st.textContent = `${conf}：${x.reason}${d.pageOk ? '' : '（帖文讀唔到，用咗你貼嘅文字）'} — 請核對後撳「儲存」。`;
+  } catch { st.textContent = '自動填寫失敗，請再試或者自己填。'; }
+  finally { btn.disabled = false; }
 });
 
 // Google Places: food photos + rating

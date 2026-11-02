@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { Pool } = require('pg');
 const receipt = require('./receipt');
 const gplaces = require('./gplaces');
+const linkimport = require('./linkimport');
 
 const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.TRIP_PASSWORD || '';
@@ -118,6 +119,13 @@ async function api(req, res, url) {
       if (Array.isArray(r.rows[0]?.photos) && r.rows[0].photos.length) await pool.query('DELETE FROM photos WHERE id = ANY($1)', [r.rows[0].photos]);
       return send(res, 200, { ok: true });
     }
+  }
+  if (kind === 'linkimport' && req.method === 'POST') {
+    if (!process.env.ANTHROPIC_API_KEY) return send(res, 503, { error: 'disabled' });
+    const { url: link, text } = await readBody(req);
+    try { new URL(link); } catch { return send(res, 400, { error: 'bad url' }); }
+    try { return send(res, 200, await linkimport.importLink(String(link).slice(0, 2000), typeof text === 'string' ? text : '')); }
+    catch (e) { console.error('linkimport', e.message); return send(res, 502, { error: 'import failed' }); }
   }
   if (kind === 'gplace') {
     if (!gplaces.enabled()) return send(res, 503, { error: 'disabled' });

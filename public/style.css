@@ -183,3 +183,5 @@ a.btn.primary{color:#fff}
 .gattr{margin:0 0 6px;font-size:11px;color:var(--muted)}
 .card .grating b{font:700 1rem var(--sans)}.card .grating small{display:inline}
 .ghint{margin:2px 0 8px;font-size:12px;color:var(--warm)}
+.gpick.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
+#importTextBox summary{font-size:13px;color:var(--muted);cursor:pointer}
