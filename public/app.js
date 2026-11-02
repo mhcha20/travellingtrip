@@ -6,13 +6,20 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { alert('無法儲存（瀏覽器儲存空間已滿或被封鎖）'); } }
 };
-let expenses = store.get('tt_expenses', null);
-if (!expenses) { expenses = SEED_EXPENSES.slice(); store.set('tt_expenses', expenses); }
-let journal = store.get('tt_journal', []);
-let rate = store.get('tt_rate', 0.052);
+let expenses = [], journal = [], rate = 0.052;
 let editId = null;
-const saveE = () => store.set('tt_expenses', expenses);
-const saveJ = () => store.set('tt_journal', journal);
+const toast = m => { let t = $('#toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.textContent = m; t.className = 'show'; clearTimeout(toast.t); toast.t = setTimeout(() => t.className = '', 3000); };
+async function api(method, path, body) {
+  for (;;) {
+    const r = await fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json', 'X-Trip-Password': store.get('tt_pw', '') }, body: body === undefined ? undefined : JSON.stringify(body) });
+    if (r.status === 401) { const pw = prompt('請輸入密碼'); if (pw === null) throw new Error('cancelled'); store.set('tt_pw', pw); continue; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+}
+const sync = p => p.catch(e => { console.error(e); toast('儲存失敗，請檢查網絡後重試'); });
+const putE = x => sync(api('PUT', 'expenses/' + x.id, x));
+const putJ = x => sync(api('PUT', 'journal/' + x.id, x));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const toHKD = e => e.currency === 'HKD' ? e.amount : e.amount * rate;
 const fmtMoney = (n, c) => (c === 'JPY' ? '¥' : 'HK$') + Number(n).toLocaleString('en-US', { maximumFractionDigits: c === 'JPY' ? 0 : 2 });
@@ -40,8 +47,7 @@ const today = new Date().toISOString().slice(0, 10);
 const defDate = (today >= TRIP.start && today <= TRIP.end) ? today : TRIP.start;
 $('#expForm [name=date]').value = defDate;
 $('#jForm [name=date]').value = defDate;
-$('#rate').value = rate;
-$('#rate').addEventListener('input', e => { const v = parseFloat(e.target.value); if (v > 0) { rate = v; store.set('tt_rate', v); renderExp(); } });
+$('#rate').addEventListener('input', e => { const v = parseFloat(e.target.value); if (v > 0) { rate = v; sync(api('PUT', 'settings/rate', { value: v })); renderExp(); } });
 
 function renderExp() {
   const paid = expenses.filter(e => e.status === 'paid'), pend = expenses.filter(e => e.status === 'pending');
@@ -77,8 +83,8 @@ $('#filterCat').addEventListener('change', renderExp);
 $('#expTable').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const x = expenses.find(v => v.id === b.dataset.id); if (!x) return;
-  if (b.dataset.act === 'toggle') { x.status = x.status === 'paid' ? 'pending' : 'paid'; saveE(); renderExp(); }
-  if (b.dataset.act === 'del' && confirm('刪除「' + x.title + '」？')) { expenses = expenses.filter(v => v !== x); saveE(); renderExp(); }
+  if (b.dataset.act === 'toggle') { x.status = x.status === 'paid' ? 'pending' : 'paid'; putE(x); renderExp(); }
+  if (b.dataset.act === 'del' && confirm('刪除「' + x.title + '」？')) { expenses = expenses.filter(v => v !== x); sync(api('DELETE', 'expenses/' + x.id)); renderExp(); }
   if (b.dataset.act === 'edit') {
     editId = x.id; const f = $('#expForm');
     for (const k of ['date','category','title','amount','currency','payer','status','note']) f.elements[k].value = x[k];
@@ -90,8 +96,9 @@ $('#cancelEdit').addEventListener('click', resetExpForm);
 $('#expForm').addEventListener('submit', ev => {
   ev.preventDefault(); const f = ev.target;
   const o = { date: f.date.value, category: f.category.value, title: f.title.value.trim(), amount: parseFloat(f.amount.value), currency: f.currency.value, payer: f.payer.value, status: f.status.value, note: f.note.value.trim() };
-  if (editId) Object.assign(expenses.find(v => v.id === editId), o); else expenses.push({ id: uid(), ...o });
-  saveE(); resetExpForm(); renderExp();
+  let x;
+  if (editId) { x = expenses.find(v => v.id === editId); Object.assign(x, o); } else { x = { id: uid(), ...o }; expenses.push(x); }
+  putE(x); resetExpForm(); renderExp();
 });
 
 // export / import
@@ -109,9 +116,10 @@ $('#importJson').addEventListener('change', async ev => {
     const d = JSON.parse(await file.text());
     if (!Array.isArray(d.expenses) || !Array.isArray(d.journal)) throw 0;
     if (!confirm('匯入會取代目前所有資料，確定？')) return;
-    expenses = d.expenses; journal = d.journal; if (d.rate > 0) { rate = d.rate; store.set('tt_rate', rate); $('#rate').value = rate; }
-    saveE(); saveJ(); renderExp(); renderJournal();
-  } catch { alert('檔案格式不正確'); }
+    await api('POST', 'import', d);
+    expenses = d.expenses; journal = d.journal; if (d.rate > 0) { rate = d.rate; $('#rate').value = rate; }
+    renderExp(); renderJournal();
+  } catch { alert('匯入失敗或檔案格式不正確'); }
   ev.target.value = '';
 });
 
@@ -131,13 +139,13 @@ function renderJournal() {
     <div class="j-photos">${(j.photos || []).map(p => `<img src="${esc(p)}" alt="">`).join('')}</div></div>`).join('') || '<p class="rate">未有旅行紀錄，開始寫第一篇啦！</p>';
 }
 $('#journalList').addEventListener('click', e => {
-  const b = e.target.closest('.del'); if (b && confirm('刪除此紀錄？')) { journal = journal.filter(j => j.id !== b.dataset.id); saveJ(); renderJournal(); }
+  const b = e.target.closest('.del'); if (b && confirm('刪除此紀錄？')) { sync(api('DELETE', 'journal/' + b.dataset.id)); journal = journal.filter(j => j.id !== b.dataset.id); renderJournal(); }
 });
 $('#jForm').addEventListener('submit', async ev => {
   ev.preventDefault(); const f = ev.target;
   const photos = (await Promise.all([...f.photo.files].map(x => shrink(x)))).filter(Boolean);
-  journal.push({ id: uid(), date: f.date.value, place: f.place.value.trim(), mood: f.mood.value, text: f.text.value.trim(), photos });
-  saveJ(); const d = f.date.value; f.reset(); f.date.value = d; renderJournal();
+  const j = { id: uid(), date: f.date.value, place: f.place.value.trim(), mood: f.mood.value, text: f.text.value.trim(), photos };
+  journal.push(j); putJ(j); const d = f.date.value; f.reset(); f.date.value = d; renderJournal();
 });
 
 // static sections
@@ -149,5 +157,12 @@ $('#bookingList').innerHTML = BOOKINGS.map(b => `<div class="card"><b>${esc(b.na
 const ul = a => '<ul class="chk">' + a.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
 $('#tipsList').innerHTML = `<div class="panel"><h2>行前清單</h2>${ul(TIPS.checklist)}</div><div class="panel"><h2>取消期限</h2>${ul(TIPS.cancel)}</div><div class="panel"><h2>緊急聯絡</h2>${ul(TIPS.contacts)}</div>`;
 
-renderExp(); renderJournal();
+(async () => {
+  try {
+    let st = await api('GET', 'state');
+    if (!st.seeded) { await Promise.all(SEED_EXPENSES.map(x => api('PUT', 'expenses/' + x.id, x))); await api('PUT', 'settings/seeded', { value: true }); st = await api('GET', 'state'); }
+    expenses = st.expenses; journal = st.journal; rate = st.rate;
+  } catch (e) { console.error(e); toast('無法載入資料'); }
+  $('#rate').value = rate; renderExp(); renderJournal();
+})();
 })();
