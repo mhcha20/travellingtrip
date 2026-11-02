@@ -291,7 +291,7 @@ $('#placeList').addEventListener('click', e => {
   const strip = $('#pdStrip'); strip.scrollLeft = strip.clientWidth * imgs.indexOf(img);
 });
 $('#placeForm').addEventListener('submit', async ev => {
-  ev.preventDefault(); const f = ev.target; const btn = f.querySelector('button.primary');
+  ev.preventDefault(); const f = ev.target; const btn = $('#placeSave');
   let photoIds;
   try {
     btn.disabled = true; btn.textContent = formPhotos.some(x => x.data) ? '上載相片中…' : '儲存中…';
