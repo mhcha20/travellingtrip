@@ -162,3 +162,15 @@ a.btn.primary{color:#fff}
 .dist{margin:0 0 6px;font-size:13px;color:var(--accent);font-weight:500}
 .place.osaka .dist{color:var(--warm)}
 .me-dot{background:#1a73e8;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 6px rgba(26,115,232,.25)}
+/* place photos */
+.gallery{display:flex;gap:6px;overflow-x:auto;scroll-snap-type:x mandatory;margin:8px -4px;padding:0 4px 4px}
+.gallery img{flex:none;height:150px;max-width:78%;object-fit:cover;border-radius:10px;scroll-snap-align:start;cursor:zoom-in;background:var(--accent-soft)}
+.gallery img:first-child{height:190px}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.thumb{position:relative}.thumb img{width:72px;height:72px;object-fit:cover;border-radius:8px;display:block}
+.thumb button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;font-size:11px;background:var(--red);color:#fff;border:2px solid var(--card-solid)}
+.photo-dialog{padding:8px;background:#000;max-width:100vw;width:100vw;max-height:100vh;margin:auto}
+.photo-dialog .close{position:absolute;top:10px;right:10px;z-index:2;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;width:36px;height:36px;padding:0}
+.pd-strip{display:flex;overflow-x:auto;scroll-snap-type:x mandatory}
+.pd-strip img{flex:none;width:100%;max-height:82vh;object-fit:contain;scroll-snap-align:center;margin:0;border-radius:0}
+.photo-dialog .rate{color:#ccc;text-align:center}

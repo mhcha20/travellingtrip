@@ -178,6 +178,8 @@ const KINDS = { food: '🍜 美食', sight: '🏔 景點', shop: '🛍 購物', 
 const AREA_CENTER = { 登別: [42.4966, 141.1440], 札幌: [43.0618, 141.3545], 小樽: [43.1907, 140.9947], 洞爺湖: [42.5650, 140.8190], 新千歲機場: [42.7752, 141.6923], 大阪: [34.6937, 135.5023], 京都: [35.0116, 135.7681], 神戶: [34.6901, 135.1955], 奈良: [34.6851, 135.8048] };
 $('#placeForm [name=area]').innerHTML = AREAS.map(x => `<option>${x}</option>`).join('');
 $('#placeForm [name=kind]').innerHTML = Object.entries(KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+let formPhotos = []; // [{id} existing | {data} new]
+const MAX_PHOTOS = 5;
 let placeEditId = null, placeFilter = '', kindFilter = '', map = null, markers = null, myPos = null, meMarker = null;
 const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
@@ -207,8 +209,10 @@ function renderPlaces() {
       <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
     <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
     ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
+    ${(p.photos || []).length ? `<div class="gallery" data-id="${p.id}">${p.photos.map((ph, i) => `<img loading="lazy" src="/api/photos/${esc(ph)}" data-i="${i}" alt="">`).join('')}</div>` : ''}
     ${p.note ? `<p class="j-text">${esc(p.note)}</p>` : ''}
     <div class="actions"><a class="btn primary" href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">🗺 Google Maps</a>
+      <a class="btn" href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(p.query || p.name + ' ' + p.area)}" target="_blank" rel="noopener">🔍 Google 圖片</a>
       ${safeUrl(p.url) ? `<a class="btn" href="${esc(p.url)}" target="_blank" rel="noopener">🔗 ${esc(sourceLabel(p.url))}</a>` : ''}
       <button data-act="toggle" data-id="${p.id}">${p.status === 'done' ? '改返想去' : '標記去咗'}</button></div></div>`).join('')
     || '<p class="rate">未有地點。見到想去嘅地方，貼條連結落嚟啦！</p>';
@@ -248,7 +252,7 @@ $('#nearBtn').addEventListener('click', () => {
 });
 $('#placeFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; placeFilter = b.dataset.area; renderPlaces(); });
 $('#tabs').addEventListener('click', e => { if (e.target.closest('[data-tab=places]')) setTimeout(() => { ensureMap(); map?.invalidateSize(); renderPlaces(); }, 50); });
-function resetPlaceForm() { placeEditId = null; $('#placeForm').reset(); $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
+function resetPlaceForm() { placeEditId = null; formPhotos = []; renderFormPhotos(); $('#placeForm').reset(); $('#placeFormTitle').textContent = '新增想去地點'; $('#placeCancel').hidden = true; }
 $('#placeCancel').addEventListener('click', resetPlaceForm);
 $('#placeList').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -258,12 +262,40 @@ $('#placeList').addEventListener('click', e => {
   if (b.dataset.act === 'edit') {
     placeEditId = p.id; const f = $('#placeForm');
     for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note']) f.elements[k].value = p[k] ?? '';
+    formPhotos = (p.photos || []).map(id => ({ id })); renderFormPhotos();
     $('#placeFormTitle').textContent = '編輯地點'; $('#placeCancel').hidden = false; f.scrollIntoView({ behavior: 'smooth' });
   }
 });
-$('#placeForm').addEventListener('submit', ev => {
-  ev.preventDefault(); const f = ev.target;
-  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim() };
+function renderFormPhotos() {
+  $('#placePhotoPreview').innerHTML = formPhotos.map((ph, i) => `<span class="thumb"><img src="${ph.data || '/api/photos/' + esc(ph.id)}" alt=""><button type="button" data-i="${i}">✕</button></span>`).join('');
+  $('#placePhotoInput').disabled = formPhotos.length >= MAX_PHOTOS;
+}
+$('#placePhotoPreview').addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (!b) return; formPhotos.splice(+b.dataset.i, 1); renderFormPhotos(); });
+$('#placePhotoInput').addEventListener('change', async ev => {
+  const files = [...ev.target.files].slice(0, MAX_PHOTOS - formPhotos.length); ev.target.value = '';
+  for (const f of files) { const d = await shrink(f, 1280, 0.8); if (d) formPhotos.push({ data: d }); }
+  renderFormPhotos();
+});
+$('#placeList').addEventListener('click', e => {
+  const img = e.target.closest('.gallery img'); if (!img) return;
+  const p = places.find(x => x.id === img.parentElement.dataset.id); if (!p) return;
+  $('#pdStrip').innerHTML = p.photos.map(ph => `<img src="/api/photos/${esc(ph)}" alt="">`).join('');
+  $('#pdCount').textContent = `${p.name} · ${p.photos.length} 張（左右掃）`;
+  $('#photoDialog').showModal();
+  const strip = $('#pdStrip'); strip.scrollLeft = strip.clientWidth * +img.dataset.i;
+});
+$('#placeForm').addEventListener('submit', async ev => {
+  ev.preventDefault(); const f = ev.target; const btn = f.querySelector('button.primary');
+  let photoIds;
+  try {
+    btn.disabled = true; btn.textContent = formPhotos.some(x => x.data) ? '上載相片中…' : '儲存中…';
+    photoIds = [];
+    for (const ph of formPhotos) photoIds.push(ph.id || (await api('POST', 'photos', { image: ph.data })).id);
+  } catch (e) { console.error(e); toast('相片上載失敗，請再試'); return; }
+  finally { btn.disabled = false; btn.textContent = '儲存'; }
+  const prev = placeEditId ? (places.find(x => x.id === placeEditId)?.photos || []) : [];
+  prev.filter(id => !photoIds.includes(id)).forEach(id => sync(api('DELETE', 'photos/' + id)));
+  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds };
   let p;
   if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
   sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();

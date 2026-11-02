@@ -120,6 +120,8 @@
         <label>緯度（可留空）<input name="lat" type="number" step="any"></label>
         <label>經度（可留空）<input name="lng" type="number" step="any"></label>
         <label class="wide">備註<textarea name="note" rows="2" placeholder="點解想去、必食、營業時間…"></textarea></label>
+        <div class="wide"><label>相片（最多 5 張，可以喺原帖截圖）<input type="file" id="placePhotoInput" accept="image/*" multiple></label>
+          <div id="placePhotoPreview" class="thumbs"></div></div>
         <button class="primary" type="submit">儲存</button>
         <button type="button" id="placeCancel" hidden>取消編輯</button>
       </form>
@@ -130,6 +132,7 @@
   <section id="tab-bookings" class="tab"><div id="bookingList"></div></section>
   <section id="tab-tips" class="tab"><div id="tipsList"></div></section>
 </main>
+<dialog id="photoDialog" class="photo-dialog"><form method="dialog"><button class="close">✕</button><div id="pdStrip" class="pd-strip"></div><p id="pdCount" class="rate"></p></form></dialog>
 <dialog id="receiptDialog"><form method="dialog"><div class="row"><b id="rdTitle"></b><button>關閉</button></div>
   <ul id="rdItems" class="items"></ul><img id="rdImg" alt="收據"></form></dialog>
 <footer><span class="foot-flake">❄</span> 資料儲存於雲端資料庫，兩個人用同一網址即時共用。可用「備份 JSON」自行匯出。</footer>

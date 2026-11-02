@@ -24,7 +24,8 @@ async function init() {
     CREATE TABLE IF NOT EXISTS journal  (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
     CREATE TABLE IF NOT EXISTS places   (id text PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz DEFAULT now());
     CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value jsonb NOT NULL);
-    CREATE TABLE IF NOT EXISTS receipts (id text PRIMARY KEY, mime text NOT NULL, image bytea NOT NULL, created_at timestamptz DEFAULT now());`);
+    CREATE TABLE IF NOT EXISTS receipts (id text PRIMARY KEY, mime text NOT NULL, image bytea NOT NULL, created_at timestamptz DEFAULT now());
+    CREATE TABLE IF NOT EXISTS photos   (id text PRIMARY KEY, mime text NOT NULL, image bytea NOT NULL, created_at timestamptz DEFAULT now());`);
 }
 
 const send = (res, code, body) => {
@@ -111,10 +112,28 @@ async function api(req, res, url) {
       return send(res, 200, { ok: true });
     }
     if (req.method === 'DELETE') {
-      const r = await pool.query(`DELETE FROM ${t} WHERE id = $1 RETURNING data->>'receiptId' AS rid`, [id]);
+      const r = await pool.query(`DELETE FROM ${t} WHERE id = $1 RETURNING data->>'receiptId' AS rid, data->'photos' AS photos`, [id]);
       if (r.rows[0]?.rid) await pool.query('DELETE FROM receipts WHERE id = $1', [r.rows[0].rid]);
+      if (Array.isArray(r.rows[0]?.photos) && r.rows[0].photos.length) await pool.query('DELETE FROM photos WHERE id = ANY($1)', [r.rows[0].photos]);
       return send(res, 200, { ok: true });
     }
+  }
+  if (kind === 'photos') {
+    if (req.method === 'POST' && !id) {
+      const { image } = await readBody(req);
+      const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(image || '');
+      if (!m) return send(res, 400, { error: 'bad image' });
+      const pid = 'p' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+      await pool.query('INSERT INTO photos (id, mime, image) VALUES ($1, $2, $3)', [pid, m[1], Buffer.from(m[2], 'base64')]);
+      return send(res, 200, { id: pid });
+    }
+    if (req.method === 'GET' && id) {
+      const r = await pool.query('SELECT mime, image FROM photos WHERE id = $1', [id]);
+      if (!r.rows.length) return send(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'Content-Type': r.rows[0].mime, 'Cache-Control': 'private, max-age=604800, immutable' });
+      return res.end(r.rows[0].image);
+    }
+    if (req.method === 'DELETE' && id) { await pool.query('DELETE FROM photos WHERE id = $1', [id]); return send(res, 200, { ok: true }); }
   }
   if (kind === 'receipts') {
     if (req.method === 'POST' && !id) {
