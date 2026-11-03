@@ -107,7 +107,8 @@
     </div>
     <div class="panel map-panel"><div id="placeMap" class="place-map"></div>
       <div class="row filters" id="placeFilters"></div>
-      <div class="row filters" id="kindFilters"></div></div>
+      <div class="row filters" id="kindFilters"></div>
+      <div class="row filters" id="cuisineFilters"></div></div>
     <div class="panel">
       <h2 id="placeFormTitle">新增想去地點</h2>
       <form id="placeForm" class="grid">
@@ -123,6 +124,7 @@
         <input type="hidden" name="gplaceId">
         <label>地區<select name="area"></select></label>
         <label>類型<select name="kind"></select></label>
+        <label class="wide">食物類型（用「、」分隔，例如：拉麵、串燒）<input name="cuisines" placeholder="拉麵、串燒、壽司…"></label>
         <label>狀態<select name="status"><option value="want">想去</option><option value="done">去咗</option></select></label>
         <label class="wide">Google Maps 搜尋字（店名＋地區，留空就用名稱）<input name="query" placeholder="例：二条市場 札幌"></label>
         <label>緯度（可留空）<input name="lat" type="number" step="any"></label>

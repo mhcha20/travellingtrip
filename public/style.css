@@ -199,3 +199,5 @@ a.src{display:inline-block;margin:2px 2px;padding:1px 10px;border-radius:99px;fo
 .dup-warn small{color:var(--muted)}
 .dup-flash{animation:dupflash 2.2s ease-out}
 @keyframes dupflash{0%,40%{box-shadow:0 0 0 4px var(--warm)}100%{box-shadow:var(--shadow)}}
+.chip.small{padding:3px 10px;font-size:12px}
+.ctag{display:inline-block;font-size:11px;padding:0 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted);margin-left:2px}

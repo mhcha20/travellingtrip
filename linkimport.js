@@ -8,6 +8,7 @@ const gplaces = require('./gplaces');
 
 const AREAS = ['登別', '札幌', '小樽', '洞爺湖', '新千歲機場', '北海道其他', '大阪', '京都', '神戶', '奈良', '關西其他', '其他'];
 const KINDS = ['food', 'sight', 'shop', 'stay', 'other'];
+const CUISINES = ['拉麵', '壽司', '迴轉壽司', '海鮮丼', '海鮮', '蟹', '燒肉', '成吉思汗', '串燒', '爐端燒', '天婦羅', '炸豬扒', '居酒屋', '湯咖喱', '和牛', '鰻魚', '河豚', '龍蝦', '烏冬', '蕎麥麵', '大阪燒', '章魚燒', '串炸', '火鍋', '定食', '自助餐', '甜品', '咖啡', '麵包', '酒吧'];
 
 function privateIp(ip) {
   if (net.isIPv4(ip)) {
@@ -54,11 +55,12 @@ async function readPage(raw) {
 
 const SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['found', 'name', 'name_local', 'area', 'kind', 'maps_query', 'note', 'confidence', 'reason', 'verified', 'sources'],
+  required: ['found', 'name', 'name_local', 'area', 'kind', 'cuisines', 'maps_query', 'note', 'confidence', 'reason', 'verified', 'sources'],
   properties: {
     found: { type: 'boolean', description: 'true if a specific place (shop, restaurant, hotel, sight) was identified' },
-    name: { type: 'string', description: 'Place name in Traditional Chinese as Hong Kong people would say it (keep brand names as-is)' },
-    name_local: { type: 'string', description: 'Official name in Japanese (or the local language)' },
+    name: { type: 'string', description: 'ONLY the place name in Traditional Chinese as Hong Kong people would say it (keep brand names as-is), optionally with the branch, e.g. 「蟹座 札幌」「米福 梅田店」. Never put descriptions, cuisine or advice in the name; those go in note.' },
+    name_local: { type: 'string', description: 'ONLY the official name in Japanese (or the local language), including branch name if any. No descriptions.' },
+    cuisines: { type: 'array', items: { type: 'string' }, description: `For food places (and hotel restaurants/breakfasts): 1-4 short Traditional Chinese food-type tags. Prefer these: ${CUISINES.join('、')}. Use a new short tag only if none fit. Empty array for non-food places.` },
     area: { type: 'string', enum: AREAS },
     kind: { type: 'string', enum: KINDS, description: 'food=restaurant/cafe/market, sight=attraction, shop=shopping, stay=hotel/ryokan' },
     maps_query: { type: 'string', description: 'Best Google Maps search text, e.g. official Japanese name + city' },

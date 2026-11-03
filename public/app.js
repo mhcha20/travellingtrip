@@ -182,6 +182,8 @@ let gEnabled = false; const gCache = new Map();
 fetch('/api/config').then(r => r.json()).then(c => { gEnabled = !!c.places; $('#gSearchBtn').hidden = !gEnabled; if (gEnabled) renderPlaces(); }).catch(() => {});
 let formPhotos = []; // [{id} existing | {data} new]
 const MAX_PHOTOS = 10;
+let cuisineFilter = '';
+const cuisinesOf = p => Array.isArray(p.cuisines) ? p.cuisines.filter(Boolean) : [];
 let placeEditId = null, placeFilter = '', kindFilter = '', map = null, markers = null, myPos = null, meMarker = null;
 const distM = (a, b) => { const R = 6371e3, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
@@ -191,10 +193,24 @@ const placeLL = p => p.lat && p.lng ? [p.lat, p.lng] : AREA_CENTER[p.area] || nu
 // Duplicate detection: same Google listing, same source link, very close + similar name, or same name.
 const normName = s => String(s || '').toLowerCase().normalize('NFKC').replace(/[（(][^）)]*[）)]/g, '').replace(/[\s・·,，、。.!！?？'"「」『』\-_/]+/g, '');
 const normUrl = u => { try { const x = new URL(u); return (x.hostname.replace(/^www\./, '') + x.pathname.replace(/\/+$/, '')).toLowerCase(); } catch { return ''; } };
-const namesOf = p => { const n = String(p.name || ''); const inner = (n.match(/[（(]([^）)]+)[）)]/g) || []).map(s => s.slice(1, -1)); return [n, ...inner, p.query].map(normName).filter(s => s.length >= 2); };
-const COMMON_NAMES = new Set(['札幌', '大阪', '京都', '神戶', '神戸', '小樽', '登別', '函館', '北海道', '市場', '拉麵', 'ラーメン', '壽司', '寿司', '食堂', '酒店', '飯店', 'ホテル', '本店', '餐廳', 'カフェ', 'cafe', '居酒屋', '燒肉', '焼肉', '溫泉', '温泉'].map(normName));
+const COMMON_NAMES = new Set(['札幌', '大阪', '京都', '神戶', '神戸', '小樽', '登別', '函館', '北海道', '梅田', '難波', 'なんば', '心齋橋', '心斎橋', '道頓堀', '薄野', 'すすきの', '狸小路', '新世界', '黒門', '黑門', '天満', '梅田店', '難波店', '市場', '拉麵', 'ラーメン', '壽司', '寿司', '食堂', '酒店', '飯店', 'ホテル', '本店', '餐廳', 'カフェ', 'cafe', '居酒屋', '燒肉', '焼肉', '溫泉', '温泉'].map(normName));
 const minLen = s => /[\u3040-\u30ff\u4e00-\u9fff]/.test(s) ? 2 : 4; // 2 CJK characters are already distinctive
-const similar = (a, b) => namesOf(a).some(x => namesOf(b).some(y => x === y || (Math.min(x.length, y.length) >= minLen(x.length < y.length ? x : y) && !COMMON_NAMES.has(x.length < y.length ? x : y) && (x.includes(y) || y.includes(x)))));
+// Names to compare: the full name, the parts in brackets, the Maps query, and each with a trailing
+// branch like 「梅田店」 cut off. Bracket parts that are only a branch (「梅田店」「LINKS UMEDA 店」) are skipped.
+const BRANCH = /(本店|支店|分店|店)$/;
+const stripBranch = s => { for (const c of COMMON_NAMES) if (s.endsWith(c + '店') && s.length > c.length + 1) return s.slice(0, -(c.length + 1)); return s; };
+const branchOnly = s => BRANCH.test(s) && (/^[a-z0-9]*(本店|支店|分店|店)$/.test(s) || s.replace(BRANCH, '').length <= 4);
+const namesOf = p => {
+  const n = String(p.name || '');
+  const inner = (n.match(/[（(]([^）)]+)[）)]/g) || []).map(s => normName(s.slice(1, -1))).filter(s => !branchOnly(s));
+  return [...new Set([normName(n), normName(p.query), ...inner].filter(Boolean).flatMap(s => [s, stripBranch(s)]))].filter(s => s.length >= 2 && !COMMON_NAMES.has(s));
+};
+const similar = (a, b) => namesOf(a).some(x => namesOf(b).some(y => {
+  if (x === y) return true;
+  const [sh, lo] = x.length < y.length ? [x, y] : [y, x];
+  // the shorter name must be distinctive (not just a district / branch word)
+  return sh.length >= minLen(sh) && !COMMON_NAMES.has(sh) && lo.includes(sh);
+}));
 function findDuplicates(o, excludeId) {
   return places.filter(p => p.id !== excludeId).map(p => {
     if (o.gplaceId && p.gplaceId === o.gplaceId) return { p, why: '同一間 Google 店舖' };
@@ -237,12 +253,17 @@ function renderPlaces() {
   $('#placeFilters').innerHTML = ['', ...areasUsed].map(a => `<button type="button" class="chip ${a === placeFilter ? 'on' : ''}" data-area="${a}">${a || '全部'} <small>${places.filter(p => !a || p.area === a).length}</small></button>`).join('');
   const kindsUsed = Object.keys(KINDS).filter(k => places.some(p => p.kind === k));
   $('#kindFilters').innerHTML = kindsUsed.length > 1 ? ['', ...kindsUsed].map(k => `<button type="button" class="chip ${k === kindFilter ? 'on' : ''}" data-kind="${k}">${k ? KINDS[k] : '全部類型'}</button>`).join('') : '';
-  const list = places.filter(p => (!placeFilter || p.area === placeFilter) && (!kindFilter || p.kind === kindFilter));
+  const cuisineCount = {};
+  places.filter(p => (!placeFilter || p.area === placeFilter) && (!kindFilter || p.kind === kindFilter)).forEach(p => cuisinesOf(p).forEach(c => cuisineCount[c] = (cuisineCount[c] || 0) + 1));
+  const cuisinesUsed = Object.keys(cuisineCount).sort((x, y) => cuisineCount[y] - cuisineCount[x] || x.localeCompare(y));
+  if (cuisineFilter && !cuisineCount[cuisineFilter]) cuisineFilter = '';
+  $('#cuisineFilters').innerHTML = cuisinesUsed.length ? ['', ...cuisinesUsed].map(c => `<button type="button" class="chip small ${c === cuisineFilter ? 'on' : ''}" data-cuisine="${esc(c)}">${c ? esc(c) + ` <small>${cuisineCount[c]}</small>` : '全部食物'}</button>`).join('') : '';
+  const list = places.filter(p => (!placeFilter || p.area === placeFilter) && (!kindFilter || p.kind === kindFilter) && (!cuisineFilter || cuisinesOf(p).includes(cuisineFilter)));
   list.forEach(p => { const ll = placeLL(p); p._d = myPos && ll ? distM(myPos, ll) : null; });
   if (myPos) list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || (x._d ?? 1e12) - (y._d ?? 1e12));
   else list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
   $('#placeList').innerHTML = list.map(p => `<div class="card place ${p.status === 'done' ? 'done' : ''} ${['大阪', '京都', '神戶', '奈良', '關西其他'].includes(p.area) ? 'osaka' : ''}">
-    <div class="j-head"><div><span class="region">${esc(p.area)}</span> <span class="kind">${KINDS[p.kind] || ''}</span>${p.unsure ? ' <span class="unsure">位置待確認</span>' : ''}</div>
+    <div class="j-head"><div><span class="region">${esc(p.area)}</span> <span class="kind">${KINDS[p.kind] || ''}</span>${cuisinesOf(p).map(c => ` <span class="ctag">${esc(c)}</span>`).join('')}${p.unsure ? ' <span class="unsure">位置待確認</span>' : ''}</div>
       <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
     <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
     ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
@@ -273,6 +294,7 @@ function renderPlaces() {
   } else if (pts.length === 1) map.setView(pts[0], 13); else if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 13 });
 }
 $('#kindFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; kindFilter = b.dataset.kind; renderPlaces(); });
+$('#cuisineFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; cuisineFilter = b.dataset.cuisine; renderPlaces(); });
 $('#nearBtn').addEventListener('click', () => {
   const st = $('#nearStatus');
   if (!navigator.geolocation) { st.textContent = '呢部機唔支援定位。'; return; }
@@ -301,6 +323,7 @@ $('#placeList').addEventListener('click', e => {
   if (b.dataset.act === 'edit') {
     placeEditId = p.id; const f = $('#placeForm');
     for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note', 'gplaceId']) f.elements[k].value = p[k] ?? '';
+    f.elements.cuisines.value = cuisinesOf(p).join('、');
     $('#gResults').innerHTML = p.gplaceId ? '<p class="glinked">✅ 已連結 Google 地點</p>' : '';
     formPhotos = (p.photos || []).map(id => ({ id })); renderFormPhotos();
     $('#placeFormTitle').textContent = '編輯地點'; $('#placeCancel').hidden = false; f.scrollIntoView({ behavior: 'smooth' });
@@ -327,7 +350,8 @@ $('#placeList').addEventListener('click', e => {
 });
 function formValues() {
   const f = $('#placeForm');
-  return { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), gplaceId: f.gplaceId.value || null };
+  return { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), gplaceId: f.gplaceId.value || null,
+    cuisines: [...new Set(f.elements.cuisines.value.split(/[、,，\s]+/).map(s => s.trim()).filter(Boolean))].slice(0, 6) };
 }
 $('#placeForm').name.addEventListener('change', () => dupWarning(formValues(), placeEditId));
 $('#dupWarn').addEventListener('click', e => { const b = e.target.closest('.dup-link'); if (b) flashCard(b.dataset.id); });
@@ -347,7 +371,7 @@ $('#placeForm').addEventListener('submit', async ev => {
   finally { btn.disabled = false; btn.textContent = '儲存'; }
   const prev = placeEditId ? (places.find(x => x.id === placeEditId)?.photos || []) : [];
   prev.filter(id => !photoIds.includes(id)).forEach(id => sync(api('DELETE', 'photos/' + id)));
-  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds, gplaceId: f.gplaceId.value || null };
+  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds, gplaceId: f.gplaceId.value || null, cuisines: formValues().cuisines };
   let p;
   if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
   sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();
@@ -391,6 +415,7 @@ $('#importBtn').addEventListener('click', async () => {
     f.name.value = x.name_local && x.name_local !== x.name ? `${x.name}（${x.name_local}）` : x.name;
     if (AREAS.includes(x.area)) f.area.value = x.area;
     if (KINDS[x.kind]) f.kind.value = x.kind;
+    f.elements.cuisines.value = (x.cuisines || []).join('、');
     f.query.value = x.maps_query || '';
     const src = (x.sources || []).filter(u => /^https?:\/\//.test(u)).slice(0, 3);
     f.note.value = [x.note, x.verified && '🔎 網上核實：' + x.verified, src.length && '來源：\n' + src.join('\n')].filter(Boolean).join('\n\n');
