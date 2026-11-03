@@ -260,12 +260,14 @@ function renderPlaces() {
   $('#cuisineFilters').innerHTML = cuisinesUsed.length ? ['', ...cuisinesUsed].map(c => `<button type="button" class="chip small ${c === cuisineFilter ? 'on' : ''}" data-cuisine="${esc(c)}">${c ? esc(c) + ` <small>${cuisineCount[c]}</small>` : '全部食物'}</button>`).join('') : '';
   const list = places.filter(p => (!placeFilter || p.area === placeFilter) && (!kindFilter || p.kind === kindFilter) && (!cuisineFilter || cuisinesOf(p).includes(cuisineFilter)));
   list.forEach(p => { const ll = placeLL(p); p._d = myPos && ll ? distM(myPos, ll) : null; });
-  if (myPos) list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || (x._d ?? 1e12) - (y._d ?? 1e12));
-  else list.sort((x, y) => (x.status === 'done') - (y.status === 'done') || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
-  $('#placeList').innerHTML = list.map(p => `<div class="card place ${p.status === 'done' ? 'done' : ''} ${['大阪', '京都', '神戶', '奈良', '關西其他'].includes(p.area) ? 'osaka' : ''}">
+  const rank = p => (p.status === 'done' ? 2 : 0) + (p.alert ? 1 : 0);
+  if (myPos) list.sort((x, y) => rank(x) - rank(y) || (x._d ?? 1e12) - (y._d ?? 1e12));
+  else list.sort((x, y) => rank(x) - rank(y) || AREAS.indexOf(x.area) - AREAS.indexOf(y.area));
+  $('#placeList').innerHTML = list.map(p => `<div class="card place ${p.status === 'done' ? 'done' : ''} ${p.alert ? 'alerted' : ''} ${['大阪', '京都', '神戶', '奈良', '關西其他'].includes(p.area) ? 'osaka' : ''}">
     <div class="j-head"><div><span class="region">${esc(p.area)}</span> <span class="kind">${KINDS[p.kind] || ''}</span>${cuisinesOf(p).map(c => ` <span class="ctag">${esc(c)}</span>`).join('')}${p.unsure ? ' <span class="unsure">位置待確認</span>' : ''}</div>
       <span><button data-act="edit" data-id="${p.id}">✎</button><button class="del" data-act="del" data-id="${p.id}">✕</button></span></div>
     <h3>${p.status === 'done' ? '✅ ' : ''}${esc(p.name)}</h3>
+    ${p.alert ? `<p class="alert-badge">⚠️ ${esc(p.alert)}</p>` : ''}
     ${p._d != null ? `<p class="dist">📍 ${p.lat && p.lng ? '' : '大約 '}${fmtDist(p._d)}${walk(p._d) ? ' · ' + walk(p._d) : ''}${p.lat && p.lng ? '' : '（只知地區，未有準確位置）'}</p>` : ''}
     ${p.gplaceId && gEnabled ? `<div class="gbox" data-g="${esc(p.gplaceId)}"><p class="rate">載入 Google 食物相…</p></div>` : ''}
     ${(p.photos || []).length ? `<div class="gallery" data-id="${p.id}">${p.photos.map((ph, i) => `<img loading="lazy" src="/api/photos/${esc(ph)}" data-i="${i}" alt="">`).join('')}</div>` : ''}
@@ -283,8 +285,8 @@ function renderPlaces() {
   list.forEach(p => {
     const ll = placeLL(p); if (!ll) return;
     pts.push(ll);
-    L.circleMarker(ll, { radius: 8, weight: 2, color: '#fff', fillColor: p.status === 'done' ? '#2f8a5b' : p.unsure ? '#c7782c' : '#2d6a96', fillOpacity: .95 })
-      .bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.area)}${p.unsure ? '（位置待確認）' : ''}<br><a href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">開 Google Maps</a>`).addTo(markers);
+    L.circleMarker(ll, { radius: 8, weight: 2, color: '#fff', fillColor: p.status === 'done' ? '#2f8a5b' : p.alert ? '#9aa5b1' : p.unsure ? '#c7782c' : '#2d6a96', fillOpacity: .95 })
+      .bindPopup(`<b>${esc(p.name)}</b><br>${p.alert ? '⚠️ ' + esc(p.alert) + '<br>' : ''}${esc(p.area)}${p.unsure ? '（位置待確認）' : ''}<br><a href="${esc(mapsUrl(p))}" target="_blank" rel="noopener">開 Google Maps</a>`).addTo(markers);
   });
   if (meMarker) { meMarker.remove(); meMarker = null; }
   if (myPos) {
@@ -304,7 +306,7 @@ $('#nearBtn').addEventListener('click', () => {
     myPos = [pos.coords.latitude, pos.coords.longitude];
     $('#nearFood').href = `https://www.google.com/maps/search/restaurants/@${myPos[0]},${myPos[1]},16z`;
     placeFilter = ''; renderPlaces();
-    const near = places.filter(p => p.status !== 'done' && p._d != null).sort((x, y) => x._d - y._d)[0];
+    const near = places.filter(p => p.status !== 'done' && !p.alert && p._d != null).sort((x, y) => x._d - y._d)[0];
     st.innerHTML = near ? `最近：<b>${esc(near.name)}</b>（${fmtDist(near._d)}）· 定位準確度約 ${Math.round(pos.coords.accuracy)} 米` : '附近未有想去嘅地方，可以撳右邊搵附近餐廳。';
   }, err => {
     $('#nearBtn').disabled = false;
@@ -322,7 +324,7 @@ $('#placeList').addEventListener('click', e => {
   if (b.dataset.act === 'del' && confirm('刪除「' + p.name + '」？')) { places = places.filter(x => x !== p); sync(api('DELETE', 'places/' + p.id)); renderPlaces(); }
   if (b.dataset.act === 'edit') {
     placeEditId = p.id; const f = $('#placeForm');
-    for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note', 'gplaceId']) f.elements[k].value = p[k] ?? '';
+    for (const k of ['url', 'name', 'area', 'kind', 'status', 'query', 'lat', 'lng', 'note', 'gplaceId', 'alert']) f.elements[k].value = p[k] ?? '';
     f.elements.cuisines.value = cuisinesOf(p).join('、');
     $('#gResults').innerHTML = p.gplaceId ? '<p class="glinked">✅ 已連結 Google 地點</p>' : '';
     formPhotos = (p.photos || []).map(id => ({ id })); renderFormPhotos();
@@ -371,7 +373,7 @@ $('#placeForm').addEventListener('submit', async ev => {
   finally { btn.disabled = false; btn.textContent = '儲存'; }
   const prev = placeEditId ? (places.find(x => x.id === placeEditId)?.photos || []) : [];
   prev.filter(id => !photoIds.includes(id)).forEach(id => sync(api('DELETE', 'photos/' + id)));
-  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds, gplaceId: f.gplaceId.value || null, cuisines: formValues().cuisines };
+  const o = { url: f.url.value.trim(), name: f.name.value.trim(), area: f.area.value, kind: f.kind.value, status: f.status.value, query: f.query.value.trim(), lat: parseFloat(f.lat.value) || null, lng: parseFloat(f.lng.value) || null, note: f.note.value.trim(), photos: photoIds, gplaceId: f.gplaceId.value || null, cuisines: formValues().cuisines, alert: f.elements.alert.value.trim() || null };
   let p;
   if (placeEditId) { p = places.find(x => x.id === placeEditId); Object.assign(p, o); delete p.unsure; } else { p = { id: uid(), ...o }; places.push(p); }
   sync(api('PUT', 'places/' + p.id, p)); resetPlaceForm(); renderPlaces();
