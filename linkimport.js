@@ -1,10 +1,11 @@
-// "Paste a link, fill in the rest": reads a public post page, asks Claude which place it features,
+// "Paste a link, fill in the rest": reads a public post page, asks Grok (or Claude) which place it features,
 // then (if configured) finds it on Google Places.
 const dns = require('dns').promises;
 const net = require('net');
 const AnthropicMod = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicMod.default || AnthropicMod;
 const gplaces = require('./gplaces');
+const grok = require('./grok');
 
 const AREAS = ['登別', '札幌', '小樽', '洞爺湖', '新千歲機場', '北海道其他', '大阪', '京都', '神戶', '奈良', '關西其他', '其他'];
 const KINDS = ['food', 'sight', 'shop', 'stay', 'other'];
@@ -74,7 +75,6 @@ const SCHEMA = {
 
 let client;
 async function identify(url, page, userText) {
-  client ??= new Anthropic();
   const prompt = `A friend shared this social media link about a place to visit on a trip to Hokkaido and Osaka (Feb 2027).
 URL: ${url}
 ${page.text ? `Public page content:\n${page.text}` : `The page could not be read (status ${page.status ?? 'error'}).`}
@@ -86,6 +86,8 @@ Identify the specific place the post features, then ALWAYS use web search to ver
 - whether it is still open (not closed or relocated).
 If the post does not name the place, use web search to identify it from the details; never guess a name you cannot support.
 In the notes, prefer the verified current facts and mention where they differ from the post. Fill in every field.`;
+  if (grok.enabled()) return grok.searchJson({ prompt, schema: SCHEMA, name: 'place' });
+  client ??= new Anthropic();
   const base = {
     model: 'claude-opus-5-5', max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',

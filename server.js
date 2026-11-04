@@ -126,7 +126,7 @@ async function api(req, res, url) {
   // (A single long request gets cut off by mobile networks / app switching.)
   if (kind === 'linkimport') {
     if (req.method === 'POST' && !id) {
-      if (!process.env.ANTHROPIC_API_KEY) return send(res, 503, { error: 'disabled' });
+      if (!process.env.XAI_API_KEY && !process.env.ANTHROPIC_API_KEY) return send(res, 503, { error: 'disabled' });
       const { url: link, text } = await readBody(req);
       try { new URL(link); } catch { return send(res, 400, { error: 'bad url' }); }
       const job = 'j' + crypto.randomBytes(8).toString('hex');
@@ -247,5 +247,5 @@ const server = http.createServer(async (req, res) => {
   } catch (e) { console.error(e); send(res, 500, { error: 'server error' }); }
 });
 
-init().then(() => server.listen(PORT, '0.0.0.0', () => console.log('listening on', PORT)))
+init().then(() => server.listen(PORT, '0.0.0.0', () => console.log('listening on', PORT, process.env.XAI_API_KEY ? 'ai=grok' : process.env.ANTHROPIC_API_KEY ? 'ai=claude' : 'ai=none')))
   .catch(e => { console.error('DB init failed', e); process.exit(1); });

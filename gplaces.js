@@ -1,8 +1,9 @@
-// Google Places (New) lookups + picking food photos with Claude.
+// Google Places (New) lookups + picking food photos with Grok (Claude if no xAI key).
 // Photos are fetched live (not stored) and shown with Google's required attribution.
 const crypto = require('crypto');
 const AnthropicMod = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicMod.default || AnthropicMod;
+const grok = require('./grok');
 
 const KEY = () => process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAP_API_KEY || '';
 const BASE = 'https://places.googleapis.com/v1/';
@@ -46,6 +47,20 @@ async function fetchThumbs(photos, seenHashes) {
   return out.filter(p => p && /^image\/(jpeg|png|webp|gif)$/.test(p.mime) && !seenHashes.has(p.hash) && seenHashes.add(p.hash));
 }
 async function classifyBatch(photos) {
+  const ask = 'These are Google Maps photos of a restaurant/hotel/shop. List the indices of images that mainly show food or drinks (dishes, bowls, buffet spreads, desserts), best-looking first. Exclude menus, storefronts, rooms, people, receipts, and near-duplicates of an image already listed.';
+  const keep = ids => [...new Set(ids)].filter(i => Number.isInteger(i) && i >= 0 && i < photos.length).map(i => ({ name: photos[i].name, by: photos[i].by }));
+  if (grok.enabled()) {
+    const content = [];
+    photos.forEach((im, i) => content.push({ type: 'input_text', text: `Image ${i}:` }, { type: 'input_image', image_url: `data:${im.mime};base64,${im.b64}`, detail: 'low' }));
+    if (!content.length) return [];
+    content.push({ type: 'input_text', text: ask });
+    const parsed = await grok.visionContent({
+      content,
+      name: 'food_photos',
+      schema: { type: 'object', additionalProperties: false, required: ['food'], properties: { food: { type: 'array', items: { type: 'integer' } } } },
+    });
+    return keep(parsed.food || []);
+  }
   const content = [];
   photos.forEach((im, i) => content.push({ type: 'text', text: `Image ${i}:` }, { type: 'image', source: { type: 'base64', media_type: im.mime, data: im.b64 } }));
   if (!content.length) return [];
@@ -59,11 +74,11 @@ async function classifyBatch(photos) {
   });
   if (res.stop_reason === 'refusal') return [];
   const t = res.content.find(b => b.type === 'text');
-  return t ? [...new Set(JSON.parse(t.text).food)].filter(i => Number.isInteger(i) && i >= 0 && i < photos.length).map(i => ({ name: photos[i].name, by: photos[i].by })) : [];
+  return t ? keep(JSON.parse(t.text).food) : [];
 }
 // Returns food photos in preference order, or null when classification is unavailable.
 async function pickFood(photos) {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (!grok.enabled() && !process.env.ANTHROPIC_API_KEY) return null;
   if (!photos.length) return [];
   const batches = []; for (let i = 0; i < photos.length; i += 15) batches.push(photos.slice(i, i + 15));
   const results = await Promise.all(batches.map(b => classifyBatch(b).catch(e => { console.error('classify', e.message); return []; })));

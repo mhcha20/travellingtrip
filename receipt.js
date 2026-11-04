@@ -1,6 +1,7 @@
-// Reads a photographed receipt with Claude and returns structured fields.
+// Reads a photographed receipt with Grok (or Claude, if no xAI key) and returns structured fields.
 const AnthropicMod = require('@anthropic-ai/sdk');
 const Anthropic = AnthropicMod.default || AnthropicMod;
+const grok = require('./grok');
 
 const CATEGORIES = ['交通', '住宿', '餐飲', '購物', '門票/活動', '藥妝', '通訊', '其他'];
 
@@ -46,11 +47,12 @@ Extract the fields in the schema.
 If the image is not a receipt, set is_receipt to false and leave the other fields empty or 0.`;
 
 let client;
-function enabled() { return !!process.env.ANTHROPIC_API_KEY; }
+function enabled() { return grok.enabled() || !!process.env.ANTHROPIC_API_KEY; }
 
 async function scanReceipt(dataUrl) {
   const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/.exec(dataUrl);
   if (!m) throw new Error('bad image');
+  if (grok.enabled()) return grok.visionJson({ dataUrl, prompt: PROMPT, schema: SCHEMA, name: 'receipt' });
   client ??= new Anthropic();
   const response = await client.beta.messages.create({
     model: 'claude-opus-5-5',
